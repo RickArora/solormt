@@ -1,0 +1,17 @@
+.DS_Store
+.env
+.env.*
+!.env.example
+node_modules/
+.next/
+out/
+dist/
+coverage/
+__pycache__/
+*.py[cod]
+.venv/
+.venv*/
+db.sqlite3
+media/
+staticfiles/
+*.tsbuildinfo
