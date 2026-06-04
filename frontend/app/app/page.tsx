@@ -360,7 +360,7 @@ export default function AppPage() {
           <CrudLayout
             title="Appointments"
             form={<AppointmentForm clients={clients} onSubmit={submitAppointment} />}
-            list={<RecordList empty="No appointments yet." rows={appointments.map((a) => ({ title: a.client_name, meta: `${a.date} at ${a.time.slice(0, 5)} - ${a.service}`, tag: a.status }))} />}
+            list={<ScheduleBoard appointments={appointments} />}
           />
         ) : null}
 
@@ -455,6 +455,93 @@ function RecordList(props: { empty: string; rows: Array<{ title: string; meta: s
           {row.tag ? <span className="shrink-0 rounded-md bg-blue-50 px-2 py-1 text-xs font-semibold text-skybrand">{row.tag}</span> : null}
         </div>
       ))}
+    </div>
+  );
+}
+
+function ScheduleBoard({ appointments }: { appointments: Appointment[] }) {
+  const hours = ["8 AM", "9 AM", "10 AM", "11 AM", "12 PM", "1 PM", "2 PM", "3 PM", "4 PM", "5 PM"];
+  const days = ["Mon", "Tue", "Wed", "Thu", "Fri"];
+  const scheduled = appointments.slice(0, 8);
+
+  if (!appointments.length) {
+    return (
+      <div className="rounded-md border border-dashed border-slate-300 bg-slate-50 p-4 text-sm text-slate-500">
+        No appointments yet. Book a session to see it on the schedule.
+      </div>
+    );
+  }
+
+  return (
+    <div className="overflow-hidden rounded-lg border border-slate-200">
+      <div className="flex flex-col gap-3 border-b border-slate-200 bg-slate-50 p-3 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-wide text-skybrand">Schedule</p>
+          <h3 className="font-semibold text-ink">Clinic Calendar</h3>
+        </div>
+        <div className="inline-flex rounded-md border border-slate-200 bg-white p-1 text-xs font-semibold text-slate-600">
+          <span className="rounded bg-skybrand px-3 py-1.5 text-white">Day</span>
+          <span className="px-3 py-1.5">Week</span>
+          <span className="px-3 py-1.5">List</span>
+        </div>
+      </div>
+
+      <div className="hidden min-w-[720px] sm:block">
+        <div className="grid grid-cols-[72px_repeat(5,1fr)] border-b border-slate-200 bg-white text-sm">
+          <div className="border-r border-slate-200 p-3 text-slate-400">Time</div>
+          {days.map((day) => (
+            <div key={day} className="border-r border-slate-200 p-3 font-semibold text-ink last:border-r-0">
+              {day}
+            </div>
+          ))}
+        </div>
+        <div className="grid grid-cols-[72px_repeat(5,1fr)] bg-white">
+          <div className="border-r border-slate-200">
+            {hours.map((hour) => (
+              <div key={hour} className="h-20 border-b border-slate-100 px-3 py-2 text-xs text-slate-400">
+                {hour}
+              </div>
+            ))}
+          </div>
+          {days.map((day, dayIndex) => (
+            <div key={day} className="relative border-r border-slate-200 last:border-r-0">
+              {hours.map((hour) => (
+                <div key={hour} className="h-20 border-b border-slate-100" />
+              ))}
+              {scheduled
+                .filter((_, index) => index % days.length === dayIndex)
+                .map((appointment, index) => (
+                  <div
+                    key={appointment.id}
+                    className="absolute left-2 right-2 rounded-md border border-skybrand/30 bg-blue-50 p-2 text-xs shadow-sm"
+                    style={{ top: `${48 + index * 126}px` }}
+                  >
+                    <p className="font-semibold text-ink">{appointment.time.slice(0, 5)} {appointment.client_name}</p>
+                    <p className="mt-1 text-slate-600">{appointment.service}</p>
+                    <span className="mt-2 inline-block rounded bg-white px-2 py-1 font-semibold text-skybrand">{appointment.status}</span>
+                  </div>
+                ))}
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="grid gap-3 bg-white p-3 sm:hidden">
+        {appointments.map((appointment) => (
+          <article key={appointment.id} className="rounded-md border border-slate-200 p-3">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wide text-skybrand">
+                  {appointment.date} at {appointment.time.slice(0, 5)}
+                </p>
+                <h4 className="mt-1 font-semibold text-ink">{appointment.client_name}</h4>
+                <p className="text-sm text-slate-600">{appointment.service}</p>
+              </div>
+              <span className="rounded-md bg-blue-50 px-2 py-1 text-xs font-semibold text-skybrand">{appointment.status}</span>
+            </div>
+          </article>
+        ))}
+      </div>
     </div>
   );
 }
