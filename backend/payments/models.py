@@ -10,6 +10,7 @@ class Payment(models.Model):
         REFUNDED = "refunded", "Refunded"
 
     owner = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="payments")
+    clinic = models.ForeignKey("core.Clinic", on_delete=models.CASCADE, related_name="payments", null=True, blank=True)
     client = models.ForeignKey("clients.Client", on_delete=models.CASCADE, related_name="payments")
     stripe_payment_id = models.CharField(max_length=255, blank=True)
     stripe_checkout_session_id = models.CharField(max_length=255, blank=True)
@@ -24,4 +25,3 @@ class Payment(models.Model):
 
     def __str__(self) -> str:
         return f"{self.client} - {self.amount_cents / 100:.2f} {self.currency}"
-

@@ -9,6 +9,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework.viewsets import ModelViewSet
 
+from core.utils import get_default_clinic
 from .models import Payment
 from .serializers import CheckoutSerializer, PaymentSerializer
 
@@ -17,10 +18,11 @@ class PaymentViewSet(ModelViewSet):
     serializer_class = PaymentSerializer
 
     def get_queryset(self):
-        return Payment.objects.select_related("client").filter(owner=self.request.user)
+        clinic = get_default_clinic(self.request.user)
+        return Payment.objects.select_related("client").filter(owner=self.request.user, clinic=clinic)
 
     def perform_create(self, serializer):
-        serializer.save(owner=self.request.user)
+        serializer.save(owner=self.request.user, clinic=get_default_clinic(self.request.user))
 
 
 class StripeCheckoutView(APIView):
@@ -31,6 +33,7 @@ class StripeCheckoutView(APIView):
 
         payment = Payment.objects.create(
             owner=request.user,
+            clinic=get_default_clinic(request.user),
             client=serializer.validated_data["client"],
             amount_cents=serializer.validated_data["amount_cents"],
             status=Payment.Status.UNPAID,
@@ -83,4 +86,3 @@ class StripeWebhookView(APIView):
                 )
 
         return HttpResponse(status=status.HTTP_200_OK)
-

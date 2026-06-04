@@ -53,6 +53,44 @@ export type Metrics = {
   soap_completion_rate: number;
 };
 
+export type Service = {
+  id: number;
+  name: string;
+  description: string;
+  duration_minutes: number;
+  price_cents: number;
+  price: string;
+  is_active: boolean;
+};
+
+export type IntakeResponse = {
+  id: number;
+  client_name: string;
+  appointment: number | null;
+  health_history: string;
+  consent_accepted: boolean;
+  answers: Record<string, unknown>;
+  created_at: string;
+};
+
+export type Clinic = {
+  id: number;
+  name: string;
+  slug: string;
+  public_email: string;
+  public_phone: string;
+  address: string;
+  booking_policy: string;
+  cancellation_window_hours: number;
+  deposit_required: boolean;
+  deposit_amount_cents: number;
+  reminders_enabled: boolean;
+  services: Service[];
+  intake_templates: Array<{ id: number; name: string; description: string; is_active: boolean }>;
+  booking_url: string;
+  app_url: string;
+};
+
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api";
 
 export class ApiError extends Error {
@@ -107,6 +145,11 @@ export const api = {
       body: JSON.stringify(payload)
     }),
   me: (token: string) => request<{ email: string; clinic_name: string; role: string }>("/auth/me/", {}, token),
+  clinic: (token: string) => request<Clinic>("/clinic/", {}, token),
+  updateClinic: (token: string, payload: Partial<Clinic>) =>
+    request<Clinic>("/clinic/", { method: "PATCH", body: JSON.stringify(payload) }, token),
+  services: (token: string) => request<Service[]>("/services/", {}, token),
+  intakeResponses: (token: string) => request<IntakeResponse[]>("/intake-responses/", {}, token),
   metrics: (token: string) => request<Metrics>("/dashboard/metrics/", {}, token),
   clients: (token: string) => request<Client[]>("/clients/", {}, token),
   createClient: (token: string, payload: Partial<Client>) =>
@@ -119,6 +162,32 @@ export const api = {
     request<SoapNote>("/soap-notes/", { method: "POST", body: JSON.stringify(payload) }, token),
   payments: (token: string) => request<Payment[]>("/payments/", {}, token),
   createPayment: (token: string, payload: Partial<Payment>) =>
-    request<Payment>("/payments/", { method: "POST", body: JSON.stringify(payload) }, token)
+    request<Payment>("/payments/", { method: "POST", body: JSON.stringify(payload) }, token),
+  publicClinic: (clinicSlug: string) => request<Clinic>(`/public/clinics/${clinicSlug}/`),
+  publicAvailability: (clinicSlug: string) =>
+    request<{
+      clinic: Clinic;
+      available_days: string[];
+      available_times: string[];
+      booked: Array<{ date: string; time: string; duration_minutes: number; status: string }>;
+    }>(`/public/clinics/${clinicSlug}/availability/`),
+  publicBook: (
+    clinicSlug: string,
+    payload: {
+      service_id: number;
+      date: string;
+      time: string;
+      first_name: string;
+      last_name: string;
+      email: string;
+      phone: string;
+      health_history: string;
+      consent_accepted: boolean;
+      pay_deposit: boolean;
+    }
+  ) =>
+    request<{ appointment_id: number; client_id: number; intake_id: number; payment_id: number | null; status: string; message: string }>(
+      `/public/clinics/${clinicSlug}/book/`,
+      { method: "POST", body: JSON.stringify(payload) }
+    )
 };
-

@@ -1,7 +1,8 @@
 from django.contrib.auth import get_user_model
 from django.core.management.base import BaseCommand
 
-from core.models import UserProfile
+from core.models import Clinic, ClinicMembership, UserProfile
+from core.utils import ensure_clinic_defaults
 
 
 class Command(BaseCommand):
@@ -34,5 +35,24 @@ class Command(BaseCommand):
             user=user,
             defaults={"role": UserProfile.Role.ADMIN, "clinic_name": "SoloRMT Demo Clinic"},
         )
+        clinic, _ = Clinic.objects.get_or_create(
+            owner=user,
+            slug="demo-clinic",
+            defaults={
+                "name": "SoloRMT Demo Clinic",
+                "public_email": "admin@solormt.local",
+                "public_phone": "416-555-0100",
+                "address": "123 Wellness Ave, Toronto, ON",
+                "deposit_required": True,
+                "deposit_amount_cents": 2500,
+            },
+        )
+        ClinicMembership.objects.get_or_create(user=user, clinic=clinic, defaults={"role": ClinicMembership.Role.OWNER})
+        ensure_clinic_defaults(clinic)
+        user.clients.filter(clinic__isnull=True).update(clinic=clinic)
+        user.appointments.filter(clinic__isnull=True).update(clinic=clinic)
+        user.soap_notes.filter(clinic__isnull=True).update(clinic=clinic)
+        user.payments.filter(clinic__isnull=True).update(clinic=clinic)
 
         self.stdout.write(self.style.SUCCESS("Admin ready: admin@solormt.local / Admin12345!"))
+        self.stdout.write(self.style.SUCCESS("Demo clinic ready: /app/demo-clinic and /book/demo-clinic"))

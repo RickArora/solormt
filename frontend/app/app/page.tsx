@@ -6,14 +6,18 @@ import {
   api,
   Appointment,
   Client,
+  Clinic,
+  IntakeResponse,
   Metrics,
   Payment,
+  Service,
   SoapNote
 } from "@/lib/api";
 import {
   CalendarPlus,
   ClipboardList,
   CreditCard,
+  FileText,
   LogOut,
   Plus,
   RefreshCcw,
@@ -23,6 +27,7 @@ import {
 } from "lucide-react";
 
 type Tab = "overview" | "clients" | "appointments" | "soap" | "payments";
+type AdminTab = Tab | "intake" | "settings";
 
 const emptyMetrics: Metrics = {
   total_clients: 0,
@@ -44,8 +49,11 @@ function today() {
 
 export default function AppPage() {
   const [token, setToken] = useState<string | null>(null);
-  const [tab, setTab] = useState<Tab>("overview");
+  const [tab, setTab] = useState<AdminTab>("overview");
   const [metrics, setMetrics] = useState<Metrics>(emptyMetrics);
+  const [clinic, setClinic] = useState<Clinic | null>(null);
+  const [services, setServices] = useState<Service[]>([]);
+  const [intakeResponses, setIntakeResponses] = useState<IntakeResponse[]>([]);
   const [clients, setClients] = useState<Client[]>([]);
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [soapNotes, setSoapNotes] = useState<SoapNote[]>([]);
@@ -62,13 +70,19 @@ export default function AppPage() {
     setLoading(true);
     setMessage("");
     try {
-      const [nextMetrics, nextClients, nextAppointments, nextNotes, nextPayments] = await Promise.all([
+      const [nextClinic, nextServices, nextIntakeResponses, nextMetrics, nextClients, nextAppointments, nextNotes, nextPayments] = await Promise.all([
+        api.clinic(activeToken),
+        api.services(activeToken),
+        api.intakeResponses(activeToken),
         api.metrics(activeToken),
         api.clients(activeToken),
         api.appointments(activeToken),
         api.soapNotes(activeToken),
         api.payments(activeToken)
       ]);
+      setClinic(nextClinic);
+      setServices(nextServices);
+      setIntakeResponses(nextIntakeResponses);
       setMetrics(nextMetrics);
       setClients(nextClients);
       setAppointments(nextAppointments);
@@ -219,13 +233,41 @@ export default function AppPage() {
     }
   }
 
+  async function submitClinicSettings(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!token) return;
+    const form = new FormData(event.currentTarget);
+    setLoading(true);
+    try {
+      const updated = await api.updateClinic(token, {
+        name: String(form.get("name")),
+        public_email: String(form.get("public_email")),
+        public_phone: String(form.get("public_phone")),
+        address: String(form.get("address")),
+        booking_policy: String(form.get("booking_policy")),
+        cancellation_window_hours: Number(form.get("cancellation_window_hours")),
+        deposit_required: form.get("deposit_required") === "on",
+        deposit_amount_cents: Math.round(Number(form.get("deposit_amount")) * 100),
+        reminders_enabled: form.get("reminders_enabled") === "on",
+      });
+      setClinic(updated);
+      setMessage("Clinic settings saved.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Could not save settings.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
   const tabs = useMemo(
     () => [
       { id: "overview" as Tab, label: "Overview", icon: Stethoscope },
       { id: "clients" as Tab, label: "Clients", icon: UserPlus },
       { id: "appointments" as Tab, label: "Appointments", icon: CalendarPlus },
       { id: "soap" as Tab, label: "SOAP", icon: ClipboardList },
-      { id: "payments" as Tab, label: "Payments", icon: CreditCard }
+      { id: "payments" as Tab, label: "Payments", icon: CreditCard },
+      { id: "intake" as AdminTab, label: "Intake", icon: FileText },
+      { id: "settings" as AdminTab, label: "Settings", icon: ShieldCheck }
     ],
     []
   );
@@ -378,6 +420,61 @@ export default function AppPage() {
             form={<PaymentForm clients={clients} onSubmit={submitPayment} />}
             list={<RecordList empty="No payments yet." rows={payments.map((p) => ({ title: p.client_name, meta: `${p.amount} ${p.currency}`, tag: p.status }))} />}
           />
+        ) : null}
+
+        {tab === "intake" ? (
+          <div className="mt-6 grid gap-6 lg:grid-cols-[0.75fr_1.25fr]">
+            <Panel title="Client Intake Flow">
+              <div className="grid gap-3 text-sm text-slate-600">
+                <p className="rounded-md border border-slate-200 bg-slate-50 p-3">Clients complete intake and consent during online booking.</p>
+                <p className="rounded-md border border-slate-200 bg-slate-50 p-3">Responses are linked to the client and appointment for staff review.</p>
+                <p className="rounded-md border border-slate-200 bg-slate-50 p-3">SOAP notes stay internal and are not visible in the client portal.</p>
+              </div>
+            </Panel>
+            <Panel title="Intake Responses">
+              <RecordList
+                empty="No intake responses yet."
+                rows={intakeResponses.map((response) => ({
+                  title: response.client_name,
+                  meta: `${response.health_history || "No health history provided"} - consent ${response.consent_accepted ? "accepted" : "missing"}`,
+                  tag: response.consent_accepted ? "consented" : "needs review",
+                }))}
+              />
+            </Panel>
+          </div>
+        ) : null}
+
+        {tab === "settings" && clinic ? (
+          <div className="mt-6 grid gap-6 lg:grid-cols-[0.85fr_1.15fr]">
+            <Panel title="Booking Links">
+              <div className="grid gap-3 text-sm">
+                <div className="rounded-md border border-slate-200 bg-slate-50 p-3">
+                  <p className="font-semibold text-ink">Admin path</p>
+                  <p className="mt-1 break-all text-slate-600">{clinic.app_url}</p>
+                </div>
+                <div className="rounded-md border border-slate-200 bg-slate-50 p-3">
+                  <p className="font-semibold text-ink">Client booking path</p>
+                  <p className="mt-1 break-all text-slate-600">{clinic.booking_url}</p>
+                </div>
+                <div className="rounded-md border border-slate-200 bg-blue-50 p-3 text-slate-700">
+                  Subdomains can come later: {clinic.slug}.solormt.com can resolve to the same clinic slug.
+                </div>
+              </div>
+            </Panel>
+            <Panel title="Clinic Settings">
+              <ClinicSettingsForm clinic={clinic} onSubmit={submitClinicSettings} />
+            </Panel>
+            <Panel title="Services">
+              <RecordList
+                empty="No services configured."
+                rows={services.map((service) => ({
+                  title: service.name,
+                  meta: `${service.duration_minutes} minutes - ${dollars(service.price_cents)}${service.description ? ` - ${service.description}` : ""}`,
+                  tag: service.is_active ? "active" : "hidden",
+                }))}
+              />
+            </Panel>
+          </div>
         ) : null}
       </div>
     </main>
@@ -702,6 +799,36 @@ function PaymentForm({ clients, onSubmit }: { clients: Client[]; onSubmit: (even
         <option value="refunded">Refunded</option>
       </Select>
       <SubmitButton>Record Payment</SubmitButton>
+    </form>
+  );
+}
+
+function ClinicSettingsForm({ clinic, onSubmit }: { clinic: Clinic; onSubmit: (event: FormEvent<HTMLFormElement>) => void }) {
+  return (
+    <form onSubmit={onSubmit} className="grid gap-4">
+      <Field name="name" label="Clinic Name" required defaultValue={clinic.name} />
+      <div className="grid gap-4 sm:grid-cols-2">
+        <Field name="public_email" label="Public Email" type="email" defaultValue={clinic.public_email} />
+        <Field name="public_phone" label="Public Phone" defaultValue={clinic.public_phone} />
+      </div>
+      <Field name="address" label="Address" defaultValue={clinic.address} />
+      <label className="grid gap-1 text-sm font-medium text-slate-700">
+        Booking / Cancellation Policy
+        <textarea name="booking_policy" rows={4} defaultValue={clinic.booking_policy} className="form-textarea" />
+      </label>
+      <div className="grid gap-4 sm:grid-cols-2">
+        <Field name="cancellation_window_hours" label="Cancel Window Hours" type="number" defaultValue={String(clinic.cancellation_window_hours)} />
+        <Field name="deposit_amount" label="Deposit Amount CAD" type="number" defaultValue={String(clinic.deposit_amount_cents / 100)} />
+      </div>
+      <label className="flex items-center gap-2 text-sm font-medium text-slate-700">
+        <input name="deposit_required" type="checkbox" defaultChecked={clinic.deposit_required} className="size-4" />
+        Require deposit for online booking
+      </label>
+      <label className="flex items-center gap-2 text-sm font-medium text-slate-700">
+        <input name="reminders_enabled" type="checkbox" defaultChecked={clinic.reminders_enabled} className="size-4" />
+        Enable appointment reminders
+      </label>
+      <SubmitButton>Save Settings</SubmitButton>
     </form>
   );
 }

@@ -1,5 +1,6 @@
 from rest_framework import serializers
 
+from core.utils import get_default_clinic
 from clients.models import Client
 from .models import Appointment
 
@@ -26,7 +27,7 @@ class AppointmentSerializer(serializers.ModelSerializer):
 
     def validate_client(self, client: Client) -> Client:
         request = self.context["request"]
-        if client.owner_id != request.user.id:
+        if client.owner_id != request.user.id or client.clinic_id != get_default_clinic(request.user).id:
             raise serializers.ValidationError("Client does not belong to this account.")
         return client
 

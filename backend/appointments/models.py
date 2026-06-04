@@ -10,7 +10,9 @@ class Appointment(models.Model):
         CANCELLED = "cancelled", "Cancelled"
 
     owner = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="appointments")
+    clinic = models.ForeignKey("core.Clinic", on_delete=models.CASCADE, related_name="appointments", null=True, blank=True)
     client = models.ForeignKey("clients.Client", on_delete=models.CASCADE, related_name="appointments")
+    service_ref = models.ForeignKey("core.Service", on_delete=models.SET_NULL, null=True, blank=True)
     service = models.CharField(max_length=160)
     date = models.DateField()
     time = models.TimeField()
@@ -25,4 +27,3 @@ class Appointment(models.Model):
 
     def __str__(self) -> str:
         return f"{self.client} - {self.date} {self.time}"
-

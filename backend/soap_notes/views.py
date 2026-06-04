@@ -2,6 +2,7 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.viewsets import ModelViewSet
 
+from core.utils import get_default_clinic
 from .models import SoapNote
 from .serializers import SoapNoteSerializer
 
@@ -10,10 +11,11 @@ class SoapNoteViewSet(ModelViewSet):
     serializer_class = SoapNoteSerializer
 
     def get_queryset(self):
-        return SoapNote.objects.select_related("client", "appointment").filter(owner=self.request.user)
+        clinic = get_default_clinic(self.request.user)
+        return SoapNote.objects.select_related("client", "appointment").filter(owner=self.request.user, clinic=clinic)
 
     def perform_create(self, serializer):
-        serializer.save(owner=self.request.user)
+        serializer.save(owner=self.request.user, clinic=get_default_clinic(self.request.user))
 
     @action(detail=True, methods=["post"], url_path="mark-complete")
     def mark_complete(self, request, pk=None):
@@ -21,4 +23,3 @@ class SoapNoteViewSet(ModelViewSet):
         note.is_complete = True
         note.save(update_fields=["is_complete", "updated_at"])
         return Response(self.get_serializer(note).data)
-

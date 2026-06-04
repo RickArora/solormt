@@ -2,6 +2,7 @@ from rest_framework import serializers
 
 from appointments.models import Appointment
 from clients.models import Client
+from core.utils import get_default_clinic
 from .models import SoapNote
 
 
@@ -30,7 +31,7 @@ class SoapNoteSerializer(serializers.ModelSerializer):
 
     def validate_client(self, client: Client) -> Client:
         request = self.context["request"]
-        if client.owner_id != request.user.id:
+        if client.owner_id != request.user.id or client.clinic_id != get_default_clinic(request.user).id:
             raise serializers.ValidationError("Client does not belong to this account.")
         return client
 
@@ -38,7 +39,6 @@ class SoapNoteSerializer(serializers.ModelSerializer):
         if appointment is None:
             return appointment
         request = self.context["request"]
-        if appointment.owner_id != request.user.id:
+        if appointment.owner_id != request.user.id or appointment.clinic_id != get_default_clinic(request.user).id:
             raise serializers.ValidationError("Appointment does not belong to this account.")
         return appointment
-

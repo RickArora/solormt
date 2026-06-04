@@ -4,6 +4,7 @@ from django.db import models
 
 class SoapNote(models.Model):
     owner = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="soap_notes")
+    clinic = models.ForeignKey("core.Clinic", on_delete=models.CASCADE, related_name="soap_notes", null=True, blank=True)
     client = models.ForeignKey("clients.Client", on_delete=models.CASCADE, related_name="soap_notes")
     appointment = models.ForeignKey(
         "appointments.Appointment",
@@ -26,4 +27,3 @@ class SoapNote(models.Model):
     def __str__(self) -> str:
         status = "Complete" if self.is_complete else "Draft"
         return f"{status} SOAP note for {self.client}"
-
