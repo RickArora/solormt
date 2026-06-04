@@ -17,6 +17,7 @@ import {
   LogOut,
   Plus,
   RefreshCcw,
+  ShieldCheck,
   Stethoscope,
   UserPlus
 } from "lucide-react";
@@ -231,29 +232,50 @@ export default function AppPage() {
 
   if (!token) {
     return (
-      <main className="min-h-screen bg-slate-50 px-4 py-8">
-        <div className="mx-auto max-w-5xl">
+      <main className="min-h-screen bg-[#f7fbff] px-4 py-6 sm:py-10">
+        <div className="mx-auto max-w-6xl">
           <Link href="/" className="inline-flex items-center gap-3 font-semibold text-ink">
             <span className="grid size-9 place-items-center rounded-md bg-skybrand text-white">S</span>
             SoloRMT
           </Link>
-          <div className="mt-8 grid gap-6 lg:grid-cols-2">
+          <div className="mt-8 grid gap-6 lg:grid-cols-[0.85fr_1.15fr]">
+            <section className="rounded-lg border border-slate-200 bg-white p-6 shadow-soft sm:p-8">
+              <p className="inline-flex items-center gap-2 rounded-md bg-blue-50 px-3 py-2 text-sm font-semibold text-skybrand">
+                <ShieldCheck size={17} />
+                Real clinic workspace
+              </p>
+              <h1 className="mt-5 max-w-xl text-3xl font-semibold leading-tight text-ink sm:text-4xl">
+                Manage clients, appointments, SOAP notes, and payments from one clean dashboard.
+              </h1>
+              <p className="mt-4 max-w-xl leading-7 text-slate-600">
+                Register a clinic account, add your clients, book their sessions, complete treatment notes, and see live metrics from the database.
+              </p>
+              <div className="mt-6 grid gap-3 text-sm text-slate-600 sm:grid-cols-2">
+                {["JWT login", "Django database", "Admin view", "Mobile-ready forms"].map((item) => (
+                  <span key={item} className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2">
+                    {item}
+                  </span>
+                ))}
+              </div>
+            </section>
+            <div className="grid gap-6">
             <AuthCard title="Login" button="Login" onSubmit={(event) => authenticate(event, "login")} />
             <AuthCard title="Create Account" button="Create Account" register onSubmit={(event) => authenticate(event, "register")} />
+            </div>
           </div>
-          {message ? <p className="mt-4 rounded-md border border-slate-200 bg-white p-3 text-sm text-slate-700">{message}</p> : null}
+          {message ? <p className="mt-4 rounded-md border border-slate-200 bg-white p-3 text-sm text-slate-700 shadow-sm">{message}</p> : null}
         </div>
       </main>
     );
   }
 
   return (
-    <main className="min-h-screen bg-slate-50">
-      <header className="border-b border-slate-200 bg-white">
+    <main className="min-h-screen bg-[#f7fbff]">
+      <header className="sticky top-0 z-20 border-b border-slate-200 bg-white/95 backdrop-blur">
         <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-4 py-4 sm:px-6 lg:px-8">
-          <Link href="/" className="flex items-center gap-3 font-semibold text-ink">
-            <span className="grid size-9 place-items-center rounded-md bg-skybrand text-white">S</span>
-            SoloRMT
+          <Link href="/" className="flex min-w-0 items-center gap-3 font-semibold text-ink">
+            <span className="grid size-9 shrink-0 place-items-center rounded-md bg-skybrand text-white">S</span>
+            <span className="truncate">SoloRMT</span>
           </Link>
           <div className="flex gap-2">
             <button onClick={() => refresh()} className="icon-button" title="Refresh data">
@@ -271,8 +293,8 @@ export default function AppPage() {
               <button
                 key={item.id}
                 onClick={() => setTab(item.id)}
-                className={`inline-flex min-h-10 shrink-0 items-center gap-2 rounded-md border px-3 text-sm font-semibold ${
-                  tab === item.id ? "border-skybrand bg-blue-50 text-skybrand" : "border-slate-200 bg-white text-slate-700"
+                className={`inline-flex min-h-10 shrink-0 items-center gap-2 rounded-md border px-3 text-sm font-semibold transition ${
+                  tab === item.id ? "border-skybrand bg-blue-50 text-skybrand shadow-sm" : "border-slate-200 bg-white text-slate-700 hover:border-skybrand hover:text-skybrand"
                 }`}
               >
                 <Icon size={16} />
@@ -283,11 +305,18 @@ export default function AppPage() {
         </nav>
       </header>
 
-      <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
-        {message ? <p className="mb-4 rounded-md border border-slate-200 bg-white p-3 text-sm text-slate-700">{message}</p> : null}
-        {loading ? <p className="mb-4 text-sm text-slate-500">Loading database records...</p> : null}
+      <div className="mx-auto max-w-7xl px-4 py-5 sm:px-6 sm:py-7 lg:px-8">
+        <div className="mb-5 flex flex-col justify-between gap-3 sm:flex-row sm:items-end">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wide text-skybrand">Clinic Workspace</p>
+            <h1 className="mt-1 text-2xl font-semibold text-ink sm:text-3xl">Practice Dashboard</h1>
+          </div>
+          {loading ? <p className="text-sm text-slate-500">Syncing database records...</p> : null}
+        </div>
 
-        <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+        {message ? <p className="mb-4 rounded-md border border-slate-200 bg-white p-3 text-sm text-slate-700 shadow-sm">{message}</p> : null}
+
+        <section className="grid grid-cols-2 gap-3 lg:grid-cols-5">
           <Metric label="Total Clients" value={metrics.total_clients} />
           <Metric label="Upcoming Appointments" value={metrics.upcoming_appointments} />
           <Metric label="Monthly Revenue" value={dollars(metrics.monthly_revenue_cents)} positive />
@@ -363,7 +392,7 @@ function AuthCard(props: {
 }) {
   return (
     <form onSubmit={props.onSubmit} className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
-      <h1 className="text-2xl font-semibold text-ink">{props.title}</h1>
+      <h2 className="text-xl font-semibold text-ink">{props.title}</h2>
       {props.register ? (
         <div className="mt-5 grid gap-4 sm:grid-cols-2">
           <Field name="first_name" label="First Name" required />
@@ -375,7 +404,7 @@ function AuthCard(props: {
         <Field name="email" label="Email" type="email" required />
         <Field name="password" label="Password" type="password" required />
       </div>
-      <button className="mt-5 inline-flex min-h-11 w-full items-center justify-center rounded-md bg-skybrand px-4 font-semibold text-white">
+      <button className="primary-button mt-5 w-full">
         {props.button}
       </button>
     </form>
@@ -384,17 +413,19 @@ function AuthCard(props: {
 
 function Metric(props: { label: string; value: string | number; positive?: boolean }) {
   return (
-    <article className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
-      <p className="text-sm text-slate-500">{props.label}</p>
-      <p className={`mt-2 text-2xl font-semibold ${props.positive ? "text-emerald-700" : "text-ink"}`}>{props.value}</p>
+    <article className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm sm:p-4">
+      <p className="text-xs leading-4 text-slate-500 sm:text-sm">{props.label}</p>
+      <p className={`mt-2 text-xl font-semibold sm:text-2xl ${props.positive ? "text-emerald-700" : "text-ink"}`}>{props.value}</p>
     </article>
   );
 }
 
 function Panel(props: { title: string; children: ReactNode }) {
   return (
-    <section className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
-      <h2 className="text-lg font-semibold text-ink">{props.title}</h2>
+    <section className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
+      <div className="flex items-center justify-between gap-3 border-b border-slate-100 pb-3">
+        <h2 className="text-lg font-semibold text-ink">{props.title}</h2>
+      </div>
       <div className="mt-4">{props.children}</div>
     </section>
   );
@@ -402,7 +433,7 @@ function Panel(props: { title: string; children: ReactNode }) {
 
 function CrudLayout(props: { title: string; form: ReactNode; list: ReactNode }) {
   return (
-    <div className="mt-6 grid gap-6 lg:grid-cols-[0.85fr_1.15fr]">
+    <div className="mt-6 grid gap-6 lg:grid-cols-[0.82fr_1.18fr]">
       <Panel title={`Add ${props.title}`}>{props.form}</Panel>
       <Panel title={props.title}>{props.list}</Panel>
     </div>
@@ -411,17 +442,17 @@ function CrudLayout(props: { title: string; form: ReactNode; list: ReactNode }) 
 
 function RecordList(props: { empty: string; rows: Array<{ title: string; meta: string; tag?: string }> }) {
   if (!props.rows.length) {
-    return <p className="rounded-md bg-slate-50 p-4 text-sm text-slate-500">{props.empty}</p>;
+    return <p className="rounded-md border border-dashed border-slate-300 bg-slate-50 p-4 text-sm text-slate-500">{props.empty}</p>;
   }
   return (
-    <div className="divide-y divide-slate-100">
+    <div className="grid gap-3">
       {props.rows.map((row, index) => (
-        <div key={`${row.title}-${index}`} className="flex items-start justify-between gap-3 py-3">
-          <div>
+        <div key={`${row.title}-${index}`} className="flex items-start justify-between gap-3 rounded-md border border-slate-200 bg-white p-3">
+          <div className="min-w-0">
             <p className="font-semibold text-ink">{row.title}</p>
-            <p className="text-sm text-slate-500">{row.meta}</p>
+            <p className="mt-1 break-words text-sm text-slate-500">{row.meta}</p>
           </div>
-          {row.tag ? <span className="rounded-md bg-blue-50 px-2 py-1 text-xs font-semibold text-skybrand">{row.tag}</span> : null}
+          {row.tag ? <span className="shrink-0 rounded-md bg-blue-50 px-2 py-1 text-xs font-semibold text-skybrand">{row.tag}</span> : null}
         </div>
       ))}
     </div>
@@ -444,7 +475,7 @@ function Field(props: {
         type={props.type || "text"}
         required={props.required}
         defaultValue={props.defaultValue}
-        className="min-h-11 rounded-md border border-slate-300 px-3 outline-none focus:border-skybrand"
+        className="form-input"
       />
     </label>
   );
@@ -454,7 +485,7 @@ function Select(props: { name: string; label: string; children: ReactNode; requi
   return (
     <label className="grid gap-1 text-sm font-medium text-slate-700">
       {props.label}
-      <select name={props.name} required={props.required} className="min-h-11 rounded-md border border-slate-300 px-3 outline-none focus:border-skybrand">
+      <select name={props.name} required={props.required} className="form-input">
         {props.children}
       </select>
     </label>
@@ -465,14 +496,14 @@ function TextArea(props: { name: string; label: string }) {
   return (
     <label className="grid gap-1 text-sm font-medium text-slate-700">
       {props.label}
-      <textarea name={props.name} rows={3} className="rounded-md border border-slate-300 px-3 py-2 outline-none focus:border-skybrand" />
+      <textarea name={props.name} rows={3} className="form-textarea" />
     </label>
   );
 }
 
 function SubmitButton({ children }: { children: ReactNode }) {
   return (
-    <button className="inline-flex min-h-11 items-center justify-center gap-2 rounded-md bg-skybrand px-4 font-semibold text-white">
+    <button className="primary-button w-full sm:w-auto">
       <Plus size={17} />
       {children}
     </button>
