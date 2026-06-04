@@ -27,7 +27,16 @@ npm install
 npm run dev
 ```
 
-Open http://localhost:3000.
+Open the printed local URL, usually http://localhost:3000 or http://localhost:3001.
+
+The working user app is at `/app`. It supports:
+
+- Register/login
+- Add clients
+- Book appointments
+- Write SOAP notes
+- Record payments
+- View metrics from the database
 
 For GitHub Pages:
 
@@ -46,10 +55,19 @@ python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 python manage.py migrate
+python manage.py bootstrap_dev
 python manage.py runserver
 ```
 
 The API will run at http://localhost:8000.
+
+Django Admin:
+
+- URL: http://localhost:8000/admin/
+- Email/username: `admin@solormt.local`
+- Password: `Admin12345!`
+
+The default local database is SQLite at `backend/db.sqlite3`. For PostgreSQL, set `DATABASE_URL` in `backend/.env`; the project is already configured through `dj-database-url`.
 
 ## Environment
 

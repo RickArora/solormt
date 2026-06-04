@@ -38,7 +38,7 @@ export default function Home() {
               FAQ
             </a>
           </div>
-          <ButtonLink href="/dashboard" className="min-h-10 px-3 py-2 text-xs sm:px-4 sm:text-sm">
+          <ButtonLink href="/app" className="min-h-10 px-3 py-2 text-xs sm:px-4 sm:text-sm">
             Get Started Free
           </ButtonLink>
         </nav>
@@ -59,7 +59,7 @@ export default function Home() {
               Manage appointments, SOAP notes, intake forms, client records, and payments from one simple dashboard.
             </p>
             <div className="mt-7 grid gap-3 sm:flex sm:flex-row">
-              <ButtonLink href="/dashboard" className="w-full sm:w-auto">Get Started Free</ButtonLink>
+              <ButtonLink href="/app" className="w-full sm:w-auto">Get Started Free</ButtonLink>
               <ButtonLink href="#pricing" variant="secondary" className="w-full sm:w-auto">
                 Book Demo
               </ButtonLink>
