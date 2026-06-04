@@ -8,6 +8,7 @@ class Appointment(models.Model):
         CONFIRMED = "confirmed", "Confirmed"
         COMPLETED = "completed", "Completed"
         CANCELLED = "cancelled", "Cancelled"
+        NO_SHOW = "no_show", "No Show"
 
     owner = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="appointments")
     clinic = models.ForeignKey("core.Clinic", on_delete=models.CASCADE, related_name="appointments", null=True, blank=True)

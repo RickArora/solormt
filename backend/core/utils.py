@@ -2,7 +2,9 @@ from datetime import datetime, time, timedelta
 
 from django.utils import timezone
 
-from .models import AppointmentReminder, Clinic, ClinicMembership, IntakeTemplate, Practitioner, PractitionerAvailability, Service
+from django.core.mail import send_mail
+
+from .models import AppointmentReminder, Clinic, ClinicMembership, IntakeTemplate, Practitioner, PractitionerAvailability, Service, WaitlistEntry
 
 
 def get_default_clinic(user):
@@ -73,3 +75,46 @@ def queue_appointment_reminders(appointment):
                     "message": "Appointment reminder queued. SMS/email content must avoid health details.",
                 },
             )
+
+
+def notify_waitlist(clinic: Clinic, service, practitioner=None) -> int:
+    """
+    When a slot opens (appointment cancelled), notify waiting clients for the
+    matching service (+optional practitioner). Returns the number notified.
+    """
+    qs = WaitlistEntry.objects.filter(
+        clinic=clinic,
+        service=service,
+        status=WaitlistEntry.Status.WAITING,
+    )
+    if practitioner:
+        qs = qs.filter(practitioner=practitioner) | WaitlistEntry.objects.filter(
+            clinic=clinic, service=service, practitioner__isnull=True, status=WaitlistEntry.Status.WAITING
+        )
+
+    notified = 0
+    from_email = clinic.reminder_email or "reminders@solormt.com"
+    for entry in qs.select_related("client")[:10]:
+        client = entry.client
+        if client.email:
+            try:
+                send_mail(
+                    subject=f"A spot opened up at {clinic.name}",
+                    message=(
+                        f"Hi {client.first_name},\n\n"
+                        f"Good news — an opening just became available for {service.name} at {clinic.name}.\n\n"
+                        f"Book now: {clinic.booking_url if hasattr(clinic, 'booking_url') else '/book/' + clinic.slug}\n\n"
+                        f"{clinic.name}"
+                    ),
+                    from_email=from_email,
+                    recipient_list=[client.email],
+                    fail_silently=True,
+                )
+            except Exception:
+                pass
+        entry.status = WaitlistEntry.Status.NOTIFIED
+        entry.notified_at = timezone.now()
+        entry.save(update_fields=["status", "notified_at"])
+        notified += 1
+
+    return notified

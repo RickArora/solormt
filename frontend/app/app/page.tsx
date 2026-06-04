@@ -7,29 +7,36 @@ import {
   api,
   Appointment,
   Client,
+  ClientPackage,
   Clinic,
+  InsuranceClaim,
   IntakeResponse,
   Metrics,
+  Package,
   Payment,
   Practitioner,
   Service,
-  SoapNote
+  SoapNote,
+  WaitlistEntry,
 } from "@/lib/api";
 import {
+  AlertTriangle,
   CalendarPlus,
   ClipboardList,
   CreditCard,
   FileText,
+  ListOrdered,
   LogOut,
+  Package as PackageIcon,
   Plus,
   RefreshCcw,
   ShieldCheck,
   Stethoscope,
-  UserPlus
+  UserPlus,
 } from "lucide-react";
 
 type Tab = "overview" | "clients" | "appointments" | "soap" | "payments";
-type AdminTab = Tab | "team" | "intake" | "settings";
+type AdminTab = Tab | "team" | "intake" | "waitlist" | "packages" | "claims" | "settings";
 
 const emptyMetrics: Metrics = {
   total_clients: 0,
@@ -63,6 +70,10 @@ export default function AppPage() {
   const [payments, setPayments] = useState<Payment[]>([]);
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(false);
+  const [waitlist, setWaitlist] = useState<WaitlistEntry[]>([]);
+  const [packages, setPackages] = useState<Package[]>([]);
+  const [clientPackages, setClientPackages] = useState<ClientPackage[]>([]);
+  const [insuranceClaims, setInsuranceClaims] = useState<InsuranceClaim[]>([]);
 
   useEffect(() => {
     setToken(window.localStorage.getItem("solormt_access"));
@@ -73,7 +84,11 @@ export default function AppPage() {
     setLoading(true);
     setMessage("");
     try {
-      const [nextClinic, nextServices, nextPractitioners, nextIntakeResponses, nextMetrics, nextClients, nextAppointments, nextNotes, nextPayments] = await Promise.all([
+      const [
+        nextClinic, nextServices, nextPractitioners, nextIntakeResponses, nextMetrics,
+        nextClients, nextAppointments, nextNotes, nextPayments,
+        nextWaitlist, nextPackages, nextClientPackages, nextClaims,
+      ] = await Promise.all([
         api.clinic(activeToken),
         api.services(activeToken),
         api.practitioners(activeToken),
@@ -82,7 +97,11 @@ export default function AppPage() {
         api.clients(activeToken),
         api.appointments(activeToken),
         api.soapNotes(activeToken),
-        api.payments(activeToken)
+        api.payments(activeToken),
+        api.waitlist(activeToken),
+        api.packages(activeToken),
+        api.clientPackages(activeToken),
+        api.insuranceClaims(activeToken),
       ]);
       setClinic(nextClinic);
       setServices(nextServices);
@@ -93,6 +112,10 @@ export default function AppPage() {
       setAppointments(nextAppointments);
       setSoapNotes(nextNotes);
       setPayments(nextPayments);
+      setWaitlist(nextWaitlist);
+      setPackages(nextPackages);
+      setClientPackages(nextClientPackages);
+      setInsuranceClaims(nextClaims);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Could not load data.");
     } finally {
@@ -290,6 +313,146 @@ export default function AppPage() {
     }
   }
 
+  async function submitWaitlist(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!token) return;
+    const formElement = event.currentTarget;
+    const form = new FormData(formElement);
+    setLoading(true);
+    try {
+      await api.createWaitlistEntry(token, {
+        client: Number(form.get("client")),
+        service: Number(form.get("service")),
+        practitioner: form.get("practitioner") ? Number(form.get("practitioner")) : null,
+        preferred_date: String(form.get("preferred_date")) || null,
+        notes: String(form.get("notes")),
+      });
+      formElement.reset();
+      setMessage("Added to waitlist.");
+      await refresh();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Could not add to waitlist.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleNoShow(appointmentId: number) {
+    if (!token) return;
+    if (!confirm("Mark this appointment as no-show? A fee will be created if no-show protection is enabled.")) return;
+    setLoading(true);
+    try {
+      const result = await api.markNoShow(token, appointmentId);
+      setMessage(`Marked as no-show.${result.no_show_fee_created ? ` $${(result.fee_cents / 100).toFixed(2)} fee created.` : ""}`);
+      await refresh();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Could not mark no-show.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function submitPackage(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!token) return;
+    const formElement = event.currentTarget;
+    const form = new FormData(formElement);
+    setLoading(true);
+    try {
+      await api.createPackage(token, {
+        name: String(form.get("name")),
+        description: String(form.get("description")),
+        service: form.get("service") ? Number(form.get("service")) : null,
+        sessions: Number(form.get("sessions")),
+        validity_days: Number(form.get("validity_days")),
+        price_cents: Math.round(Number(form.get("price")) * 100),
+        is_active: true,
+      });
+      formElement.reset();
+      setMessage("Package created.");
+      await refresh();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Could not create package.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function purchasePackage(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!token) return;
+    const formElement = event.currentTarget;
+    const form = new FormData(formElement);
+    setLoading(true);
+    try {
+      await api.purchasePackage(token, {
+        package_id: Number(form.get("package_id")),
+        client_id: Number(form.get("client_id")),
+      });
+      formElement.reset();
+      setMessage("Package purchased for client. Payment record created.");
+      await refresh();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Could not purchase package.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function redeemSession(clientPackageId: number) {
+    if (!token) return;
+    setLoading(true);
+    try {
+      await api.redeemPackageSession(token, clientPackageId);
+      setMessage("Session redeemed.");
+      await refresh();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Could not redeem session.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function submitClaim(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!token) return;
+    const formElement = event.currentTarget;
+    const form = new FormData(formElement);
+    setLoading(true);
+    try {
+      await api.createInsuranceClaim(token, {
+        client: Number(form.get("client")),
+        appointment: form.get("appointment") ? Number(form.get("appointment")) : null,
+        provider: String(form.get("provider")) as InsuranceClaim["provider"],
+        service_date: String(form.get("service_date")),
+        service_code: String(form.get("service_code")) || "21000",
+        diagnosis_code: String(form.get("diagnosis_code")),
+        amount_submitted_cents: Math.round(Number(form.get("amount_submitted")) * 100),
+      });
+      formElement.reset();
+      setMessage("Claim created as draft. Use Submit to send to insurer.");
+      await refresh();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Could not create claim.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function submitClaimToInsurer(claimId: number) {
+    if (!token) return;
+    setLoading(true);
+    try {
+      const claim = await api.submitInsuranceClaim(token, claimId);
+      setMessage(`Claim ${claim.claim_number} submitted. Status: ${claim.status}.`);
+      await refresh();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Could not submit claim.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
   async function submitClinicSettings(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!token) return;
@@ -309,6 +472,10 @@ export default function AppPage() {
         booking_payment_mode: String(form.get("booking_payment_mode")) as Clinic["booking_payment_mode"],
         card_on_file_required: form.get("card_on_file_required") === "on",
         reminders_enabled: form.get("reminders_enabled") === "on",
+        reminder_email: String(form.get("reminder_email")),
+        sms_enabled: form.get("sms_enabled") === "on",
+        noshow_protection_enabled: form.get("noshow_protection_enabled") === "on",
+        noshow_fee_cents: Math.round(Number(form.get("noshow_fee")) * 100),
       });
       setClinic(updated);
       setMessage("Clinic settings saved.");
@@ -327,6 +494,9 @@ export default function AppPage() {
       { id: "team" as AdminTab, label: "Team", icon: UserPlus },
       { id: "soap" as Tab, label: "SOAP", icon: ClipboardList },
       { id: "payments" as Tab, label: "Payments", icon: CreditCard },
+      { id: "waitlist" as AdminTab, label: "Waitlist", icon: ListOrdered },
+      { id: "packages" as AdminTab, label: "Packages", icon: PackageIcon },
+      { id: "claims" as AdminTab, label: "eClaims", icon: ShieldCheck },
       { id: "intake" as AdminTab, label: "Intake", icon: FileText },
       { id: "settings" as AdminTab, label: "Settings", icon: ShieldCheck }
     ],
@@ -430,14 +600,28 @@ export default function AppPage() {
         {tab === "overview" ? (
           <div className="mt-6 grid gap-6 lg:grid-cols-[1.2fr_0.8fr]">
             <Panel title="Upcoming Appointments">
-              <RecordList
-                empty="No appointments yet."
-                rows={appointments.map((item) => ({
-                  title: item.client_name,
-                  meta: `${item.date} at ${item.time.slice(0, 5)} - ${item.service}`,
-                  tag: item.status
-                }))}
-              />
+              {appointments.length ? (
+                <div className="grid gap-3">
+                  {appointments.map((item) => (
+                    <div key={item.id} className="flex items-start justify-between gap-3 rounded-md border border-slate-200 bg-white p-3">
+                      <div className="min-w-0">
+                        <p className="font-semibold text-ink">{item.client_name}</p>
+                        <p className="mt-1 text-sm text-slate-500">{item.date} at {item.time.slice(0, 5)} — {item.service}</p>
+                      </div>
+                      <div className="flex shrink-0 flex-col items-end gap-2">
+                        <span className="rounded-md bg-blue-50 px-2 py-1 text-xs font-semibold text-skybrand">{item.status}</span>
+                        {item.status === "confirmed" || item.status === "pending" ? (
+                          <button onClick={() => handleNoShow(item.id)} title="Mark no-show" className="inline-flex items-center gap-1 rounded-md border border-amber-200 bg-amber-50 px-2 py-1 text-xs font-semibold text-amber-700 hover:bg-amber-100">
+                            <AlertTriangle size={12} /> No-show
+                          </button>
+                        ) : null}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="rounded-md border border-dashed border-slate-300 bg-slate-50 p-4 text-sm text-slate-500">No appointments yet.</p>
+              )}
             </Panel>
             <Panel title="Recent Clients">
               <RecordList
@@ -503,6 +687,174 @@ export default function AppPage() {
             title="Payments"
             form={<PaymentForm clients={clients} onSubmit={submitPayment} />}
             list={<RecordList empty="No payments yet." rows={payments.map((p) => ({ title: p.client_name, meta: `${p.amount} ${p.currency}`, tag: p.status }))} />}
+          />
+        ) : null}
+
+        {tab === "waitlist" ? (
+          <CrudLayout
+            title="Waitlist"
+            form={
+              <form onSubmit={submitWaitlist} className="grid gap-4">
+                <Select name="client" label="Client" required>
+                  <option value="">Select client</option>
+                  {clients.map((c) => (
+                    <option key={c.id} value={c.id}>{c.first_name} {c.last_name}</option>
+                  ))}
+                </Select>
+                <Select name="service" label="Service" required>
+                  <option value="">Select service</option>
+                  {services.map((s) => (
+                    <option key={s.id} value={s.id}>{s.name}</option>
+                  ))}
+                </Select>
+                <Select name="practitioner" label="Practitioner (optional)">
+                  <option value="">Any practitioner</option>
+                  {practitioners.map((p) => (
+                    <option key={p.id} value={p.id}>{p.name}</option>
+                  ))}
+                </Select>
+                <Field name="preferred_date" label="Preferred date (optional)" type="date" />
+                <TextArea name="notes" label="Notes" />
+                <SubmitButton>Add to Waitlist</SubmitButton>
+              </form>
+            }
+            list={
+              <RecordList
+                empty="No one on the waitlist."
+                rows={waitlist.map((w) => ({
+                  title: w.client_name,
+                  meta: `${w.service_name}${w.practitioner_name ? ` – ${w.practitioner_name}` : ""}${w.preferred_date ? ` · ${w.preferred_date}` : ""}`,
+                  tag: w.status,
+                }))}
+              />
+            }
+          />
+        ) : null}
+
+        {tab === "packages" ? (
+          <div className="mt-6 grid gap-6 lg:grid-cols-[0.82fr_1.18fr]">
+            <div className="grid gap-6">
+              <Panel title="Create Package">
+                <form onSubmit={submitPackage} className="grid gap-4">
+                  <Field name="name" label="Package Name" required />
+                  <TextArea name="description" label="Description" />
+                  <Select name="service" label="Service">
+                    <option value="">Any service</option>
+                    {services.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+                  </Select>
+                  <div className="grid gap-4 sm:grid-cols-3">
+                    <Field name="sessions" label="Sessions" type="number" required defaultValue="5" />
+                    <Field name="validity_days" label="Valid (days)" type="number" required defaultValue="365" />
+                    <Field name="price" label="Price CAD" type="number" required defaultValue="500" />
+                  </div>
+                  <SubmitButton>Create Package</SubmitButton>
+                </form>
+              </Panel>
+              <Panel title="Sell Package to Client">
+                <form onSubmit={purchasePackage} className="grid gap-4">
+                  <Select name="client_id" label="Client" required>
+                    <option value="">Select client</option>
+                    {clients.map((c) => <option key={c.id} value={c.id}>{c.first_name} {c.last_name}</option>)}
+                  </Select>
+                  <Select name="package_id" label="Package" required>
+                    <option value="">Select package</option>
+                    {packages.filter((p) => p.is_active).map((p) => (
+                      <option key={p.id} value={p.id}>{p.name} – ${(p.price_cents / 100).toFixed(2)}</option>
+                    ))}
+                  </Select>
+                  <SubmitButton>Sell Package</SubmitButton>
+                </form>
+              </Panel>
+            </div>
+            <div className="grid gap-6">
+              <Panel title="Package Templates">
+                <RecordList
+                  empty="No packages created yet."
+                  rows={packages.map((p) => ({
+                    title: p.name,
+                    meta: `${p.sessions} sessions · ${p.validity_days}d validity · $${(p.price_cents / 100).toFixed(2)}`,
+                    tag: p.is_active ? "active" : "hidden",
+                  }))}
+                />
+              </Panel>
+              <Panel title="Client Packages">
+                {clientPackages.length ? (
+                  <div className="grid gap-3">
+                    {clientPackages.map((cp) => (
+                      <div key={cp.id} className="flex items-start justify-between gap-3 rounded-md border border-slate-200 bg-white p-3">
+                        <div className="min-w-0">
+                          <p className="font-semibold text-ink">{cp.client_name}</p>
+                          <p className="mt-1 text-sm text-slate-500">{cp.package_name} · {cp.sessions_remaining}/{cp.sessions_total} sessions left</p>
+                          {cp.expires_at ? <p className="mt-1 text-xs text-slate-400">Expires {cp.expires_at}</p> : null}
+                        </div>
+                        <div className="flex shrink-0 flex-col items-end gap-2">
+                          <span className="rounded-md bg-blue-50 px-2 py-1 text-xs font-semibold text-skybrand">{cp.status}</span>
+                          {cp.status === "active" && cp.sessions_remaining > 0 ? (
+                            <button onClick={() => redeemSession(cp.id)} className="secondary-button text-xs">Redeem</button>
+                          ) : null}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="rounded-md border border-dashed border-slate-300 bg-slate-50 p-4 text-sm text-slate-500">No client packages yet.</p>
+                )}
+              </Panel>
+            </div>
+          </div>
+        ) : null}
+
+        {tab === "claims" ? (
+          <CrudLayout
+            title="Insurance Claims"
+            form={
+              <form onSubmit={submitClaim} className="grid gap-4">
+                <Select name="client" label="Client" required>
+                  <option value="">Select client</option>
+                  {clients.map((c) => <option key={c.id} value={c.id}>{c.first_name} {c.last_name}</option>)}
+                </Select>
+                <Select name="appointment" label="Appointment (optional)">
+                  <option value="">None</option>
+                  {appointments.filter((a) => a.status === "completed").map((a) => (
+                    <option key={a.id} value={a.id}>{a.client_name} – {a.date}</option>
+                  ))}
+                </Select>
+                <Select name="provider" label="Provider" required>
+                  <option value="telus">TELUS eClaims</option>
+                  <option value="manual">Manual / Paper</option>
+                </Select>
+                <Field name="service_date" label="Service Date" type="date" required />
+                <Field name="service_code" label="Service Code" defaultValue="21000" />
+                <Field name="diagnosis_code" label="Diagnosis Code (optional)" />
+                <Field name="amount_submitted" label="Amount Submitted CAD" type="number" required defaultValue="120" />
+                <SubmitButton>Create Claim</SubmitButton>
+              </form>
+            }
+            list={
+              <div className="grid gap-3">
+                {insuranceClaims.length ? insuranceClaims.map((claim) => (
+                  <div key={claim.id} className="flex items-start justify-between gap-3 rounded-md border border-slate-200 bg-white p-3">
+                    <div className="min-w-0">
+                      <p className="font-semibold text-ink">{claim.client_name}</p>
+                      <p className="mt-1 text-sm text-slate-500">
+                        {claim.provider === "telus" ? "TELUS eClaims" : "Manual"} · ${claim.amount_submitted} submitted
+                        {claim.amount_approved_cents > 0 ? ` · $${claim.amount_approved} approved` : ""}
+                      </p>
+                      {claim.claim_number ? <p className="mt-1 text-xs text-slate-400">#{claim.claim_number} · {claim.service_date}</p> : null}
+                      {claim.response_message ? <p className="mt-1 text-xs text-slate-500 italic">{claim.response_message}</p> : null}
+                    </div>
+                    <div className="flex shrink-0 flex-col items-end gap-2">
+                      <span className="rounded-md bg-blue-50 px-2 py-1 text-xs font-semibold text-skybrand">{claim.status}</span>
+                      {claim.status === "draft" ? (
+                        <button onClick={() => submitClaimToInsurer(claim.id)} className="secondary-button text-xs">Submit</button>
+                      ) : null}
+                    </div>
+                  </div>
+                )) : (
+                  <p className="rounded-md border border-dashed border-slate-300 bg-slate-50 p-4 text-sm text-slate-500">No claims yet.</p>
+                )}
+              </div>
+            }
           />
         ) : null}
 
@@ -1026,6 +1378,21 @@ function ClinicSettingsForm({ clinic, onSubmit }: { clinic: Clinic; onSubmit: (e
         <input name="reminders_enabled" type="checkbox" defaultChecked={clinic.reminders_enabled} className="size-4" />
         Enable appointment reminders
       </label>
+      <Field name="reminder_email" label="Reminder From Email" type="email" defaultValue={clinic.reminder_email} />
+      <label className="flex items-center gap-2 text-sm font-medium text-slate-700">
+        <input name="sms_enabled" type="checkbox" defaultChecked={clinic.sms_enabled} className="size-4" />
+        Enable SMS reminders (requires Twilio config)
+      </label>
+      <div className="border-t border-slate-100 pt-4">
+        <p className="mb-3 text-sm font-semibold text-ink">No-Show Protection</p>
+        <label className="flex items-center gap-2 text-sm font-medium text-slate-700">
+          <input name="noshow_protection_enabled" type="checkbox" defaultChecked={clinic.noshow_protection_enabled} className="size-4" />
+          Charge no-show fee when appointment is marked as no-show
+        </label>
+        <div className="mt-3">
+          <Field name="noshow_fee" label="No-Show Fee CAD" type="number" defaultValue={String(clinic.noshow_fee_cents / 100)} />
+        </div>
+      </div>
       <SubmitButton>Save Settings</SubmitButton>
     </form>
   );

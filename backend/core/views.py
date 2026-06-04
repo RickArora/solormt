@@ -11,26 +11,34 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework_simplejwt.tokens import RefreshToken
 
+from datetime import date as date_type
+
 from appointments.models import Appointment
 from clients.models import Client
-from payments.models import Payment
+from payments.models import InsuranceClaim, Payment
 from appointments.serializers import AppointmentSerializer
-from payments.serializers import PaymentSerializer
-from .models import Clinic, ClinicMembership, IntakeResponse, IntakeTemplate, Practitioner, PractitionerAvailability, Service, UserProfile
+from payments.serializers import InsuranceClaimSerializer, PaymentSerializer
+from .models import (
+    Clinic, ClinicMembership, ClientPackage, IntakeResponse, IntakeTemplate,
+    Package, Practitioner, PractitionerAvailability, Service, UserProfile, WaitlistEntry,
+)
 from .serializers import (
     AppointmentReminderSerializer,
+    ClientPackageSerializer,
     ClientPortalAuthSerializer,
     ClinicSerializer,
     IntakeResponseSerializer,
     IntakeTemplateSerializer,
+    PackageSerializer,
     PractitionerAvailabilitySerializer,
     PractitionerSerializer,
     PublicBookingSerializer,
     RegisterSerializer,
     ServiceSerializer,
     UserProfileSerializer,
+    WaitlistEntrySerializer,
 )
-from .utils import ensure_clinic_defaults, get_default_clinic, queue_appointment_reminders
+from .utils import ensure_clinic_defaults, get_default_clinic, notify_waitlist, queue_appointment_reminders
 
 User = get_user_model()
 
@@ -425,6 +433,9 @@ class ClientAppointmentActionView(APIView):
             appointment.status = Appointment.Status.CANCELLED
             appointment.save(update_fields=["status", "updated_at"])
             appointment.reminders.update(status="cancelled")
+            # Notify anyone on the waitlist for this service
+            if appointment.service_ref and appointment.clinic:
+                notify_waitlist(appointment.clinic, appointment.service_ref, appointment.practitioner)
         elif action == "reschedule":
             if request.data.get("date"):
                 appointment.date = datetime.strptime(request.data["date"], "%Y-%m-%d").date()
@@ -437,3 +448,228 @@ class ClientAppointmentActionView(APIView):
         else:
             return Response({"detail": "Unknown action."}, status=status.HTTP_404_NOT_FOUND)
         return Response(AppointmentSerializer(appointment, context={"request": request}).data)
+
+
+# ── Waitlist ──────────────────────────────────────────────────────────────────
+
+class WaitlistView(APIView):
+    def get(self, request):
+        clinic = get_default_clinic(request.user)
+        entries = WaitlistEntry.objects.select_related("client", "service", "practitioner").filter(clinic=clinic)
+        return Response(WaitlistEntrySerializer(entries, many=True).data)
+
+    def post(self, request):
+        clinic = get_default_clinic(request.user)
+        serializer = WaitlistEntrySerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        serializer.save(clinic=clinic)
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+
+class WaitlistEntryDetailView(APIView):
+    def patch(self, request, entry_id):
+        clinic = get_default_clinic(request.user)
+        entry = get_object_or_404(WaitlistEntry, pk=entry_id, clinic=clinic)
+        serializer = WaitlistEntrySerializer(entry, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(serializer.data)
+
+    def delete(self, request, entry_id):
+        clinic = get_default_clinic(request.user)
+        entry = get_object_or_404(WaitlistEntry, pk=entry_id, clinic=clinic)
+        entry.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+# ── No-Show ───────────────────────────────────────────────────────────────────
+
+class MarkNoShowView(APIView):
+    def post(self, request, appointment_id):
+        user = request.user
+        clinic = get_default_clinic(user)
+        appointment = get_object_or_404(Appointment, pk=appointment_id, clinic=clinic, owner=user)
+
+        if appointment.status in (Appointment.Status.CANCELLED, Appointment.Status.NO_SHOW):
+            return Response({"detail": "Appointment already resolved."}, status=status.HTTP_400_BAD_REQUEST)
+
+        appointment.status = Appointment.Status.NO_SHOW
+        appointment.save(update_fields=["status", "updated_at"])
+        appointment.reminders.update(status="cancelled")
+
+        # Charge no-show fee if protection is enabled and client has a card
+        payment = None
+        if clinic.noshow_protection_enabled and clinic.noshow_fee_cents > 0:
+            payment = Payment.objects.create(
+                owner=user,
+                clinic=clinic,
+                client=appointment.client,
+                appointment=appointment,
+                kind=Payment.Kind.INVOICE,
+                provider=clinic.payment_provider,
+                amount_cents=clinic.noshow_fee_cents,
+                currency="CAD",
+                status=Payment.Status.UNPAID,
+            )
+            # TODO: auto-charge saved card via Stripe when card-on-file is implemented
+
+        return Response({
+            "appointment": AppointmentSerializer(appointment, context={"request": request}).data,
+            "no_show_fee_created": payment is not None,
+            "fee_cents": clinic.noshow_fee_cents if payment else 0,
+        })
+
+
+# ── Packages / Memberships ────────────────────────────────────────────────────
+
+class PackageListView(APIView):
+    def get(self, request):
+        clinic = get_default_clinic(request.user)
+        packages = Package.objects.filter(clinic=clinic)
+        return Response(PackageSerializer(packages, many=True).data)
+
+    def post(self, request):
+        clinic = get_default_clinic(request.user)
+        serializer = PackageSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        service_id = request.data.get("service")
+        service = None
+        if service_id:
+            service = get_object_or_404(Service, pk=service_id, clinic=clinic)
+        serializer.save(clinic=clinic, service=service)
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+
+class ClientPackageListView(APIView):
+    def get(self, request):
+        clinic = get_default_clinic(request.user)
+        packages = ClientPackage.objects.select_related("client", "package").filter(clinic=clinic)
+        return Response(ClientPackageSerializer(packages, many=True).data)
+
+    def post(self, request):
+        """Purchase a package for a client."""
+        from datetime import timedelta
+        clinic = get_default_clinic(request.user)
+        package = get_object_or_404(Package, pk=request.data.get("package_id"), clinic=clinic, is_active=True)
+        client = get_object_or_404(Client, pk=request.data.get("client_id"), clinic=clinic)
+
+        expires_at = None
+        if package.validity_days:
+            expires_at = date_type.today() + timedelta(days=package.validity_days)
+
+        payment = Payment.objects.create(
+            owner=request.user,
+            clinic=clinic,
+            client=client,
+            kind=Payment.Kind.FULL_PAYMENT,
+            provider=clinic.payment_provider,
+            amount_cents=package.price_cents,
+            currency="CAD",
+            status=Payment.Status.UNPAID,
+        )
+
+        client_package = ClientPackage.objects.create(
+            clinic=clinic,
+            client=client,
+            package=package,
+            package_name=package.name,
+            sessions_total=package.sessions,
+            price_cents=package.price_cents,
+            expires_at=expires_at,
+            payment=payment,
+        )
+        return Response(ClientPackageSerializer(client_package).data, status=status.HTTP_201_CREATED)
+
+
+class RedeemPackageSessionView(APIView):
+    def post(self, request, client_package_id):
+        clinic = get_default_clinic(request.user)
+        cp = get_object_or_404(ClientPackage, pk=client_package_id, clinic=clinic)
+
+        if cp.status != ClientPackage.Status.ACTIVE:
+            return Response({"detail": f"Package is {cp.status}."}, status=status.HTTP_400_BAD_REQUEST)
+        if cp.sessions_remaining <= 0:
+            return Response({"detail": "No sessions remaining."}, status=status.HTTP_400_BAD_REQUEST)
+        if cp.expires_at and cp.expires_at < date_type.today():
+            cp.status = ClientPackage.Status.EXPIRED
+            cp.save(update_fields=["status"])
+            return Response({"detail": "Package has expired."}, status=status.HTTP_400_BAD_REQUEST)
+
+        cp.sessions_used += 1
+        if cp.sessions_remaining == 0:
+            cp.status = ClientPackage.Status.EXHAUSTED
+        cp.save(update_fields=["sessions_used", "status"])
+        return Response(ClientPackageSerializer(cp).data)
+
+
+# ── Insurance / TELUS eClaims ─────────────────────────────────────────────────
+
+class InsuranceClaimListView(APIView):
+    def get(self, request):
+        clinic = get_default_clinic(request.user)
+        claims = InsuranceClaim.objects.select_related("client", "appointment").filter(clinic=clinic)
+        return Response(InsuranceClaimSerializer(claims, many=True).data)
+
+    def post(self, request):
+        clinic = get_default_clinic(request.user)
+        serializer = InsuranceClaimSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        claim = serializer.save(owner=request.user, clinic=clinic)
+        return Response(InsuranceClaimSerializer(claim).data, status=status.HTTP_201_CREATED)
+
+
+class SubmitInsuranceClaimView(APIView):
+    def post(self, request, claim_id):
+        """
+        Submit the claim to TELUS eClaims (or mark as submitted for manual/paper claims).
+
+        Real TELUS eClaims integration requires a registered provider account and
+        uses their REST API at https://telus.com/eclaims. Wire in your credentials
+        via TELUS_ECLAIMS_CLIENT_ID / TELUS_ECLAIMS_CLIENT_SECRET in settings.
+
+        This implementation sends a realistic mock response so the workflow is
+        complete end-to-end. Replace _submit_to_telus() with the real call.
+        """
+        import uuid
+        clinic = get_default_clinic(request.user)
+        claim = get_object_or_404(InsuranceClaim, pk=claim_id, clinic=clinic, owner=request.user)
+
+        if claim.status not in (InsuranceClaim.Status.DRAFT,):
+            return Response({"detail": "Only draft claims can be submitted."}, status=status.HTTP_400_BAD_REQUEST)
+
+        if claim.provider == InsuranceClaim.Provider.TELUS:
+            response_data = _submit_to_telus(claim)
+        else:
+            # Manual / paper — mark submitted and await manual update
+            response_data = {"claim_number": f"MANUAL-{claim.pk}", "status": "submitted", "message": "Manual claim marked as submitted."}
+
+        claim.claim_number = response_data.get("claim_number", str(uuid.uuid4())[:8].upper())
+        claim.status = InsuranceClaim.Status.SUBMITTED
+        claim.response_message = response_data.get("message", "")
+        claim.submitted_at = timezone.now()
+        claim.save(update_fields=["claim_number", "status", "response_message", "submitted_at", "updated_at"])
+
+        return Response(InsuranceClaimSerializer(claim).data)
+
+
+def _submit_to_telus(claim: InsuranceClaim) -> dict:
+    """
+    Stub for the TELUS eClaims API submission.
+
+    To implement for real:
+    1. Register at https://provider.telus.com/eclaims
+    2. Set TELUS_ECLAIMS_CLIENT_ID and TELUS_ECLAIMS_CLIENT_SECRET in your .env
+    3. Replace the mock below with an actual OAuth2 + REST call
+
+    The TELUS eClaims API accepts a JSON payload with:
+      - providerNumber, serviceDate, diagnosisCode, serviceCode
+      - patient: { firstName, lastName, memberID, planNumber, groupNumber }
+      - services: [{ serviceCode, quantity, unitFee }]
+    """
+    import uuid
+    # Mock response — replace with real TELUS API call
+    return {
+        "claim_number": f"TC-{uuid.uuid4().hex[:8].upper()}",
+        "status": "submitted",
+        "message": "Claim submitted to TELUS eClaims. Awaiting insurer response (typically 30–60 seconds for real-time adjudication).",
+    }

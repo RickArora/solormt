@@ -6,12 +6,15 @@ from .models import (
     AppointmentReminder,
     Clinic,
     ClinicMembership,
+    ClientPackage,
     IntakeResponse,
     IntakeTemplate,
+    Package,
     Practitioner,
     PractitionerAvailability,
     Service,
     UserProfile,
+    WaitlistEntry,
 )
 from .security import validate_strong_password, verify_recaptcha
 from .utils import ensure_clinic_defaults
@@ -181,6 +184,10 @@ class ClinicSerializer(serializers.ModelSerializer):
             "booking_payment_mode",
             "card_on_file_required",
             "reminders_enabled",
+            "reminder_email",
+            "sms_enabled",
+            "noshow_protection_enabled",
+            "noshow_fee_cents",
             "services",
             "practitioners",
             "intake_templates",
@@ -250,3 +257,60 @@ class AppointmentReminderSerializer(serializers.ModelSerializer):
     class Meta:
         model = AppointmentReminder
         fields = ["id", "kind", "kind_label", "channel", "channel_label", "status", "scheduled_for", "message"]
+
+
+class WaitlistEntrySerializer(serializers.ModelSerializer):
+    client_name = serializers.SerializerMethodField()
+    service_name = serializers.CharField(source="service.name", read_only=True)
+    practitioner_name = serializers.SerializerMethodField()
+
+    class Meta:
+        model = WaitlistEntry
+        fields = [
+            "id", "client", "client_name", "service", "service_name",
+            "practitioner", "practitioner_name", "preferred_date",
+            "notes", "status", "notified_at", "created_at",
+        ]
+        read_only_fields = ["id", "client_name", "service_name", "practitioner_name", "notified_at", "created_at"]
+
+    def get_client_name(self, obj: WaitlistEntry) -> str:
+        return str(obj.client)
+
+    def get_practitioner_name(self, obj: WaitlistEntry) -> str:
+        return str(obj.practitioner) if obj.practitioner else ""
+
+
+class PackageSerializer(serializers.ModelSerializer):
+    price = serializers.SerializerMethodField()
+    service_name = serializers.CharField(source="service.name", read_only=True)
+
+    class Meta:
+        model = Package
+        fields = [
+            "id", "name", "description", "service", "service_name",
+            "sessions", "validity_days", "price_cents", "price", "is_active", "created_at",
+        ]
+        read_only_fields = ["id", "price", "service_name", "created_at"]
+
+    def get_price(self, obj: Package) -> str:
+        return f"{obj.price_cents / 100:.2f}"
+
+
+class ClientPackageSerializer(serializers.ModelSerializer):
+    client_name = serializers.SerializerMethodField()
+    sessions_remaining = serializers.IntegerField(read_only=True)
+
+    class Meta:
+        model = ClientPackage
+        fields = [
+            "id", "client", "client_name", "package", "package_name",
+            "sessions_total", "sessions_used", "sessions_remaining",
+            "price_cents", "status", "purchased_at", "expires_at",
+        ]
+        read_only_fields = [
+            "id", "client_name", "package_name", "sessions_total",
+            "price_cents", "sessions_remaining", "purchased_at",
+        ]
+
+    def get_client_name(self, obj: ClientPackage) -> str:
+        return str(obj.client)

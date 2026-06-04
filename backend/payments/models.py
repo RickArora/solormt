@@ -48,3 +48,43 @@ class Payment(models.Model):
 
     def __str__(self) -> str:
         return f"{self.client} - {self.amount_cents / 100:.2f} {self.currency}"
+
+
+class InsuranceClaim(models.Model):
+    class Status(models.TextChoices):
+        DRAFT = "draft", "Draft"
+        SUBMITTED = "submitted", "Submitted"
+        ACCEPTED = "accepted", "Accepted"
+        REJECTED = "rejected", "Rejected"
+        PAID = "paid", "Paid"
+
+    class Provider(models.TextChoices):
+        TELUS = "telus", "TELUS eClaims"
+        MANUAL = "manual", "Manual / Paper"
+
+    owner = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="insurance_claims")
+    clinic = models.ForeignKey("core.Clinic", on_delete=models.CASCADE, related_name="insurance_claims")
+    client = models.ForeignKey("clients.Client", on_delete=models.CASCADE, related_name="insurance_claims")
+    appointment = models.ForeignKey(
+        "appointments.Appointment", on_delete=models.SET_NULL, null=True, blank=True, related_name="insurance_claims"
+    )
+    payment = models.ForeignKey(Payment, on_delete=models.SET_NULL, null=True, blank=True, related_name="insurance_claims")
+    provider = models.CharField(max_length=20, choices=Provider.choices, default=Provider.TELUS)
+    claim_number = models.CharField(max_length=80, blank=True)
+    service_date = models.DateField()
+    diagnosis_code = models.CharField(max_length=20, blank=True)
+    service_code = models.CharField(max_length=20, blank=True, default="21000")  # Standard RMT service code
+    amount_submitted_cents = models.PositiveIntegerField()
+    amount_approved_cents = models.PositiveIntegerField(default=0)
+    status = models.CharField(max_length=20, choices=Status.choices, default=Status.DRAFT)
+    response_message = models.TextField(blank=True)
+    submitted_at = models.DateTimeField(null=True, blank=True)
+    responded_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self) -> str:
+        return f"Claim {self.claim_number or self.pk} – {self.client} ({self.get_status_display()})"

@@ -7,18 +7,26 @@ from appointments.views import AppointmentViewSet
 from clients.views import ClientViewSet
 from core.views import (
     ClientAppointmentActionView,
+    ClientPackageListView,
     ClientPortalAuthView,
     ClientPortalView,
     ClinicDetailView,
+    InsuranceClaimListView,
     IntakeResponseListView,
+    MarkNoShowView,
+    PackageListView,
     PractitionerAvailabilityView,
     PractitionerListView,
     PublicAvailabilityView,
     PublicBookingView,
     PublicClinicView,
+    RedeemPackageSessionView,
     RegisterView,
     ServiceListView,
+    SubmitInsuranceClaimView,
     UserProfileView,
+    WaitlistEntryDetailView,
+    WaitlistView,
 )
 from dashboard.views import DashboardMetricsView
 from payments.views import PaymentViewSet, StripeCheckoutView, StripeWebhookView
@@ -55,4 +63,16 @@ urlpatterns = [
     path("api/dashboard/metrics/", DashboardMetricsView.as_view(), name="dashboard-metrics"),
     path("api/payments/checkout/", StripeCheckoutView.as_view(), name="stripe-checkout"),
     path("api/payments/webhook/", StripeWebhookView.as_view(), name="stripe-webhook"),
+    # Waitlist
+    path("api/waitlist/", WaitlistView.as_view(), name="waitlist"),
+    path("api/waitlist/<int:entry_id>/", WaitlistEntryDetailView.as_view(), name="waitlist-entry"),
+    # No-show
+    path("api/appointments/<int:appointment_id>/no-show/", MarkNoShowView.as_view(), name="mark-no-show"),
+    # Packages / memberships
+    path("api/packages/", PackageListView.as_view(), name="packages"),
+    path("api/client-packages/", ClientPackageListView.as_view(), name="client-packages"),
+    path("api/client-packages/<int:client_package_id>/redeem/", RedeemPackageSessionView.as_view(), name="redeem-package"),
+    # Insurance / TELUS eClaims
+    path("api/insurance-claims/", InsuranceClaimListView.as_view(), name="insurance-claims"),
+    path("api/insurance-claims/<int:claim_id>/submit/", SubmitInsuranceClaimView.as_view(), name="submit-insurance-claim"),
 ]

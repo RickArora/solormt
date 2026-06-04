@@ -19,8 +19,70 @@ export type Appointment = {
   date: string;
   time: string;
   duration_minutes: number;
-  status: "pending" | "confirmed" | "completed" | "cancelled";
+  status: "pending" | "confirmed" | "completed" | "cancelled" | "no_show";
   notes: string;
+};
+
+export type WaitlistEntry = {
+  id: number;
+  client: number;
+  client_name: string;
+  service: number;
+  service_name: string;
+  practitioner: number | null;
+  practitioner_name: string;
+  preferred_date: string | null;
+  notes: string;
+  status: "waiting" | "notified" | "booked" | "expired";
+  notified_at: string | null;
+  created_at: string;
+};
+
+export type Package = {
+  id: number;
+  name: string;
+  description: string;
+  service: number | null;
+  service_name: string;
+  sessions: number;
+  validity_days: number;
+  price_cents: number;
+  price: string;
+  is_active: boolean;
+};
+
+export type ClientPackage = {
+  id: number;
+  client: number;
+  client_name: string;
+  package: number | null;
+  package_name: string;
+  sessions_total: number;
+  sessions_used: number;
+  sessions_remaining: number;
+  price_cents: number;
+  status: "active" | "exhausted" | "expired" | "cancelled";
+  purchased_at: string;
+  expires_at: string | null;
+};
+
+export type InsuranceClaim = {
+  id: number;
+  client: number;
+  client_name: string;
+  appointment: number | null;
+  provider: "telus" | "manual";
+  claim_number: string;
+  service_date: string;
+  service_code: string;
+  diagnosis_code: string;
+  amount_submitted_cents: number;
+  amount_submitted: string;
+  amount_approved_cents: number;
+  amount_approved: string;
+  status: "draft" | "submitted" | "accepted" | "rejected" | "paid";
+  response_message: string;
+  submitted_at: string | null;
 };
 
 export type SoapNote = {
@@ -120,6 +182,10 @@ export type Clinic = {
   booking_payment_mode: "none" | "deposit" | "card_on_file" | "full_payment";
   card_on_file_required: boolean;
   reminders_enabled: boolean;
+  reminder_email: string;
+  sms_enabled: boolean;
+  noshow_protection_enabled: boolean;
+  noshow_fee_cents: number;
   services: Service[];
   practitioners: Practitioner[];
   intake_templates: Array<{ id: number; name: string; description: string; is_active: boolean }>;
@@ -127,7 +193,7 @@ export type Clinic = {
   app_url: string;
 };
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000/api";
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "/api/proxy";
 
 export class ApiError extends Error {
   constructor(message: string, public status: number) {
@@ -148,10 +214,15 @@ async function request<T>(path: string, options: RequestInit = {}, token?: strin
   if (!response.ok) {
     let message = "Request failed";
     try {
-      const body = await response.json();
-      message = JSON.stringify(body);
+      const text = await response.text();
+      try {
+        const body = JSON.parse(text);
+        message = JSON.stringify(body);
+      } catch {
+        message = text || message;
+      }
     } catch {
-      message = await response.text();
+      // body unreadable
     }
     throw new ApiError(message, response.status);
   }
@@ -316,5 +387,33 @@ export const api = {
       `/client/clinics/${clinicSlug}/appointments/${appointmentId}/${action}/`,
       { method: "POST", body: JSON.stringify(payload) },
       token
-    )
+    ),
+  // Waitlist
+  waitlist: (token: string) => request<WaitlistEntry[]>("/waitlist/", {}, token),
+  createWaitlistEntry: (token: string, payload: Partial<WaitlistEntry>) =>
+    request<WaitlistEntry>("/waitlist/", { method: "POST", body: JSON.stringify(payload) }, token),
+  updateWaitlistEntry: (token: string, id: number, payload: Partial<WaitlistEntry>) =>
+    request<WaitlistEntry>(`/waitlist/${id}/`, { method: "PATCH", body: JSON.stringify(payload) }, token),
+  deleteWaitlistEntry: (token: string, id: number) =>
+    request<void>(`/waitlist/${id}/`, { method: "DELETE" }, token),
+  // No-show
+  markNoShow: (token: string, appointmentId: number) =>
+    request<{ appointment: Appointment; no_show_fee_created: boolean; fee_cents: number }>(
+      `/appointments/${appointmentId}/no-show/`, { method: "POST", body: JSON.stringify({}) }, token
+    ),
+  // Packages
+  packages: (token: string) => request<Package[]>("/packages/", {}, token),
+  createPackage: (token: string, payload: Partial<Package>) =>
+    request<Package>("/packages/", { method: "POST", body: JSON.stringify(payload) }, token),
+  clientPackages: (token: string) => request<ClientPackage[]>("/client-packages/", {}, token),
+  purchasePackage: (token: string, payload: { package_id: number; client_id: number }) =>
+    request<ClientPackage>("/client-packages/", { method: "POST", body: JSON.stringify(payload) }, token),
+  redeemPackageSession: (token: string, clientPackageId: number) =>
+    request<ClientPackage>(`/client-packages/${clientPackageId}/redeem/`, { method: "POST", body: JSON.stringify({}) }, token),
+  // Insurance / TELUS eClaims
+  insuranceClaims: (token: string) => request<InsuranceClaim[]>("/insurance-claims/", {}, token),
+  createInsuranceClaim: (token: string, payload: Partial<InsuranceClaim>) =>
+    request<InsuranceClaim>("/insurance-claims/", { method: "POST", body: JSON.stringify(payload) }, token),
+  submitInsuranceClaim: (token: string, claimId: number) =>
+    request<InsuranceClaim>(`/insurance-claims/${claimId}/submit/`, { method: "POST", body: JSON.stringify({}) }, token),
 };

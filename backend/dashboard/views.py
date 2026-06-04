@@ -43,7 +43,7 @@ class DashboardMetricsView(APIView):
         return Response(
             {
                 "total_clients": Client.objects.filter(owner=user, clinic=clinic).count(),
-                "upcoming_appointments": sum(item["count"] for item in upcoming),
+                "upcoming_appointments": sum(item["count"] for item in upcoming if item["status"] != "cancelled"),
                 "appointments_by_status": {item["status"]: item["count"] for item in upcoming},
                 "monthly_revenue_cents": monthly_revenue,
                 "outstanding_invoices_cents": outstanding,

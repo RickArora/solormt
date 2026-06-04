@@ -34,6 +34,10 @@ class Clinic(models.Model):
     )
     card_on_file_required = models.BooleanField(default=False)
     reminders_enabled = models.BooleanField(default=True)
+    reminder_email = models.EmailField(blank=True, help_text="From address for outgoing reminder emails")
+    sms_enabled = models.BooleanField(default=False)
+    noshow_protection_enabled = models.BooleanField(default=False)
+    noshow_fee_cents = models.PositiveIntegerField(default=5000, help_text="Fee charged when client no-shows")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -196,6 +200,81 @@ class UserProfile(models.Model):
 
     def __str__(self) -> str:
         return f"{self.user.email} ({self.get_role_display()})"
+
+
+class WaitlistEntry(models.Model):
+    class Status(models.TextChoices):
+        WAITING = "waiting", "Waiting"
+        NOTIFIED = "notified", "Notified"
+        BOOKED = "booked", "Booked"
+        EXPIRED = "expired", "Expired"
+
+    clinic = models.ForeignKey(Clinic, on_delete=models.CASCADE, related_name="waitlist_entries")
+    client = models.ForeignKey("clients.Client", on_delete=models.CASCADE, related_name="waitlist_entries")
+    service = models.ForeignKey(Service, on_delete=models.CASCADE, related_name="waitlist_entries")
+    practitioner = models.ForeignKey(Practitioner, on_delete=models.SET_NULL, null=True, blank=True, related_name="waitlist_entries")
+    preferred_date = models.DateField(null=True, blank=True)
+    notes = models.TextField(blank=True)
+    status = models.CharField(max_length=20, choices=Status.choices, default=Status.WAITING)
+    notified_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["created_at"]
+
+    def __str__(self) -> str:
+        return f"{self.client} on waitlist for {self.service}"
+
+
+class Package(models.Model):
+    """A reusable treatment package template the clinic creates and sells."""
+    clinic = models.ForeignKey(Clinic, on_delete=models.CASCADE, related_name="packages")
+    name = models.CharField(max_length=160)
+    description = models.TextField(blank=True)
+    service = models.ForeignKey(Service, on_delete=models.SET_NULL, null=True, blank=True, related_name="packages")
+    sessions = models.PositiveIntegerField(default=5)
+    validity_days = models.PositiveIntegerField(default=365, help_text="Days from purchase before package expires")
+    price_cents = models.PositiveIntegerField(default=50000)
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["name"]
+
+    def __str__(self) -> str:
+        return f"{self.name} ({self.sessions} sessions)"
+
+
+class ClientPackage(models.Model):
+    """A purchased package instance belonging to a specific client."""
+    class Status(models.TextChoices):
+        ACTIVE = "active", "Active"
+        EXHAUSTED = "exhausted", "Exhausted"
+        EXPIRED = "expired", "Expired"
+        CANCELLED = "cancelled", "Cancelled"
+
+    clinic = models.ForeignKey(Clinic, on_delete=models.CASCADE, related_name="client_packages")
+    client = models.ForeignKey("clients.Client", on_delete=models.CASCADE, related_name="packages")
+    package = models.ForeignKey(Package, on_delete=models.SET_NULL, null=True, related_name="client_instances")
+    package_name = models.CharField(max_length=160)
+    sessions_total = models.PositiveIntegerField()
+    sessions_used = models.PositiveIntegerField(default=0)
+    price_cents = models.PositiveIntegerField()
+    status = models.CharField(max_length=20, choices=Status.choices, default=Status.ACTIVE)
+    purchased_at = models.DateTimeField(auto_now_add=True)
+    expires_at = models.DateField(null=True, blank=True)
+    payment = models.ForeignKey("payments.Payment", on_delete=models.SET_NULL, null=True, blank=True, related_name="packages")
+
+    class Meta:
+        ordering = ["-purchased_at"]
+
+    @property
+    def sessions_remaining(self) -> int:
+        return max(0, self.sessions_total - self.sessions_used)
+
+    def __str__(self) -> str:
+        return f"{self.client} – {self.package_name} ({self.sessions_remaining} left)"
 
 
 class AppointmentReminder(models.Model):

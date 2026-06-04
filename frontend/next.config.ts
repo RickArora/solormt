@@ -10,7 +10,7 @@ const nextConfig: NextConfig = {
     unoptimized: true
   },
   basePath: isGitHubPages ? "/solormt" : undefined,
-  assetPrefix: isGitHubPages ? "/solormt/" : undefined
+  assetPrefix: isGitHubPages ? "/solormt/" : undefined,
 };
 
 export default nextConfig;

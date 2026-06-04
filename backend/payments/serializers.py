@@ -2,7 +2,7 @@ from rest_framework import serializers
 
 from clients.models import Client
 from core.utils import get_default_clinic
-from .models import Payment
+from .models import InsuranceClaim, Payment
 
 
 class PaymentSerializer(serializers.ModelSerializer):
@@ -43,6 +43,35 @@ class PaymentSerializer(serializers.ModelSerializer):
         if client.owner_id != request.user.id or client.clinic_id != get_default_clinic(request.user).id:
             raise serializers.ValidationError("Client does not belong to this account.")
         return client
+
+
+class InsuranceClaimSerializer(serializers.ModelSerializer):
+    client_name = serializers.SerializerMethodField()
+    amount_submitted = serializers.SerializerMethodField()
+    amount_approved = serializers.SerializerMethodField()
+
+    class Meta:
+        model = InsuranceClaim
+        fields = [
+            "id", "client", "client_name", "appointment", "payment",
+            "provider", "claim_number", "service_date", "diagnosis_code",
+            "service_code", "amount_submitted_cents", "amount_submitted",
+            "amount_approved_cents", "amount_approved",
+            "status", "response_message", "submitted_at", "responded_at", "created_at",
+        ]
+        read_only_fields = [
+            "id", "client_name", "amount_submitted", "amount_approved",
+            "claim_number", "submitted_at", "responded_at", "created_at",
+        ]
+
+    def get_client_name(self, obj: InsuranceClaim) -> str:
+        return str(obj.client)
+
+    def get_amount_submitted(self, obj: InsuranceClaim) -> str:
+        return f"{obj.amount_submitted_cents / 100:.2f}"
+
+    def get_amount_approved(self, obj: InsuranceClaim) -> str:
+        return f"{obj.amount_approved_cents / 100:.2f}"
 
 
 class CheckoutSerializer(serializers.Serializer):

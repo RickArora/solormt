@@ -4,7 +4,7 @@ import { FormEvent, ReactNode, useEffect, useState } from "react";
 import Link from "next/link";
 import RecaptchaField from "@/components/RecaptchaField";
 import { api, Appointment, Clinic, IntakeResponse, Payment } from "@/lib/api";
-import { CalendarClock, FileText, ReceiptText, RotateCcw } from "lucide-react";
+import { CalendarClock, FileText, LogOut, ReceiptText, RotateCcw } from "lucide-react";
 
 type PortalData = {
   clinic: Clinic;
@@ -71,6 +71,13 @@ export default function ClientPortal({ clinicSlug }: { clinicSlug: string }) {
     }
   }
 
+  function logout() {
+    window.localStorage.removeItem(`solormt_client_access_${clinicSlug}`);
+    window.localStorage.removeItem(`solormt_client_refresh_${clinicSlug}`);
+    setToken(null);
+    setData(null);
+  }
+
   async function appointmentAction(appointment: Appointment, action: "cancel" | "reschedule", form?: FormData) {
     if (!token) return;
     setLoading(true);
@@ -128,7 +135,10 @@ export default function ClientPortal({ clinicSlug }: { clinicSlug: string }) {
     <main className="min-h-screen bg-[#f7fbff]">
       <header className="border-b border-slate-200 bg-white">
         <div className="mx-auto flex max-w-6xl flex-col gap-2 px-4 py-5 sm:px-6 lg:px-8">
-          <Link href={`/book/${clinicSlug}`} className="font-semibold text-ink">SoloRMT</Link>
+          <div className="flex items-center justify-between gap-4">
+            <Link href={`/book/${clinicSlug}`} className="font-semibold text-ink">SoloRMT</Link>
+            <button onClick={logout} className="icon-button" title="Log out"><LogOut size={17} /></button>
+          </div>
           <p className="text-sm font-semibold text-skybrand">{data.clinic.name}</p>
           <h1 className="text-3xl font-semibold text-ink">Hi, {data.client.name}</h1>
           {loading ? <p className="text-sm text-slate-500">Syncing portal...</p> : null}
@@ -146,19 +156,23 @@ export default function ClientPortal({ clinicSlug }: { clinicSlug: string }) {
                     <h3 className="mt-1 font-semibold text-ink">{appointment.service}</h3>
                     <p className="text-sm text-slate-600">{appointment.practitioner_name || "Practitioner pending"} - {appointment.status}</p>
                   </div>
-                  <button onClick={() => appointmentAction(appointment, "cancel")} className="secondary-button">Cancel</button>
+                  {appointment.status !== "cancelled" && appointment.status !== "completed" ? (
+                    <button onClick={() => appointmentAction(appointment, "cancel")} className="secondary-button">Cancel</button>
+                  ) : null}
                 </div>
-                <form
-                  onSubmit={(event) => {
-                    event.preventDefault();
-                    void appointmentAction(appointment, "reschedule", new FormData(event.currentTarget));
-                  }}
-                  className="mt-3 grid gap-3 sm:grid-cols-[1fr_1fr_auto]"
-                >
-                  <input name="date" type="date" required className="form-input" />
-                  <input name="time" type="time" required className="form-input" />
-                  <button className="secondary-button"><RotateCcw size={16} /> Reschedule</button>
-                </form>
+                {appointment.status !== "cancelled" && appointment.status !== "completed" ? (
+                  <form
+                    onSubmit={(event) => {
+                      event.preventDefault();
+                      void appointmentAction(appointment, "reschedule", new FormData(event.currentTarget));
+                    }}
+                    className="mt-3 grid gap-3 sm:grid-cols-[1fr_1fr_auto]"
+                  >
+                    <input name="date" type="date" required className="form-input" />
+                    <input name="time" type="time" required className="form-input" />
+                    <button className="secondary-button"><RotateCcw size={16} /> Reschedule</button>
+                  </form>
+                ) : null}
               </article>
             )) : <Empty text="No appointments yet." />}
           </div>
