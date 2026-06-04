@@ -175,6 +175,7 @@ export const api = {
     first_name: string;
     last_name: string;
     clinic_name: string;
+    recaptcha_token?: string;
   }) =>
     request<{ access: string; refresh: string }>("/auth/register/", {
       method: "POST",
@@ -262,6 +263,7 @@ export const api = {
       consent_accepted: boolean;
       pay_deposit: boolean;
       save_card: boolean;
+      recaptcha_token?: string;
     }
   ) =>
     request<{
@@ -281,7 +283,15 @@ export const api = {
     ),
   clientPortalAuth: (
     clinicSlug: string,
-    payload: { mode: "register" | "login"; email: string; password: string; first_name?: string; last_name?: string; phone?: string }
+    payload: {
+      mode: "register" | "login";
+      email: string;
+      password: string;
+      first_name?: string;
+      last_name?: string;
+      phone?: string;
+      recaptcha_token?: string;
+    }
   ) =>
     request<{ access: string; refresh: string; client_id: number; clinic: Clinic }>(
       `/public/clinics/${clinicSlug}/portal/auth/`,

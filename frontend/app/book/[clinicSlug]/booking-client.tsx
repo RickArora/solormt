@@ -2,6 +2,7 @@
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import RecaptchaField from "@/components/RecaptchaField";
 import { api, Clinic, Practitioner, Service } from "@/lib/api";
 import { CalendarCheck, CheckCircle2, CreditCard, FileText, LockKeyhole, UserRound } from "lucide-react";
 
@@ -78,6 +79,7 @@ export default function BookingClient({ clinicSlug }: { clinicSlug: string }) {
         consent_accepted: form.get("consent_accepted") === "on",
         pay_deposit: form.get("pay_deposit") === "on",
         save_card: form.get("save_card") === "on",
+        recaptcha_token: String(form.get("recaptcha_token")),
       });
       if (response.client_access) {
         window.localStorage.setItem(`solormt_client_access_${clinicSlug}`, response.client_access);
@@ -228,9 +230,10 @@ export default function BookingClient({ clinicSlug }: { clinicSlug: string }) {
               </label>
               <label className="grid gap-1 text-sm font-medium text-slate-700">
                 Password
-                <input name="password" type="password" required minLength={8} className="form-input" />
+                <input name="password" type="password" required minLength={12} className="form-input" />
               </label>
             </div>
+            <p className="text-xs text-slate-500">Passwords must be at least 12 characters and cannot be common, numeric-only, or too similar to your account info.</p>
             <label className="grid gap-1 text-sm font-medium text-slate-700">
               Phone
               <input name="phone" className="form-input" />
@@ -252,6 +255,7 @@ export default function BookingClient({ clinicSlug }: { clinicSlug: string }) {
                 </span>
               </label>
             ) : null}
+            <RecaptchaField action="public-booking" />
             <button className="primary-button w-full sm:w-auto">Confirm Appointment Request</button>
           </div>
         </form>

@@ -187,7 +187,7 @@ class PublicBookingView(APIView):
     def post(self, request, clinic_slug):
         clinic = get_object_or_404(Clinic, slug=clinic_slug)
         ensure_clinic_defaults(clinic)
-        serializer = PublicBookingSerializer(data=request.data)
+        serializer = PublicBookingSerializer(data=request.data, context={"request": request})
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
         service = get_object_or_404(Service, clinic=clinic, id=data["service_id"], is_active=True)
@@ -343,7 +343,7 @@ class ClientPortalAuthView(APIView):
 
     def post(self, request, clinic_slug):
         clinic = get_object_or_404(Clinic, slug=clinic_slug)
-        serializer = ClientPortalAuthSerializer(data=request.data)
+        serializer = ClientPortalAuthSerializer(data=request.data, context={"request": request})
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
         email = data["email"].lower().strip()

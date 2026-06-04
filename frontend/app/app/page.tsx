@@ -2,6 +2,7 @@
 
 import { FormEvent, ReactNode, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import RecaptchaField from "@/components/RecaptchaField";
 import {
   api,
   Appointment,
@@ -117,7 +118,8 @@ export default function AppPage() {
               password: String(form.get("password")),
               first_name: String(form.get("first_name")),
               last_name: String(form.get("last_name")),
-              clinic_name: String(form.get("clinic_name"))
+              clinic_name: String(form.get("clinic_name")),
+              recaptcha_token: String(form.get("recaptcha_token"))
             });
       window.localStorage.setItem("solormt_access", response.access);
       window.localStorage.setItem("solormt_refresh", response.refresh);
@@ -581,8 +583,10 @@ function AuthCard(props: {
       ) : null}
       <div className="mt-5 grid gap-4">
         <Field name="email" label="Email" type="email" required />
-        <Field name="password" label="Password" type="password" required />
+        <Field name="password" label="Password" type="password" required minLength={12} />
       </div>
+      {props.register ? <RecaptchaField action="admin-register" /> : null}
+      {props.register ? <p className="text-xs text-slate-500">Use at least 12 characters. Common, numeric-only, or easily guessed passwords are rejected.</p> : null}
       <button className="primary-button mt-5 w-full">
         {props.button}
       </button>
@@ -733,6 +737,7 @@ function Field(props: {
   required?: boolean;
   className?: string;
   defaultValue?: string;
+  minLength?: number;
 }) {
   return (
     <label className={`grid gap-1 text-sm font-medium text-slate-700 ${props.className || ""}`}>
@@ -742,6 +747,7 @@ function Field(props: {
         type={props.type || "text"}
         required={props.required}
         defaultValue={props.defaultValue}
+        minLength={props.minLength}
         className="form-input"
       />
     </label>

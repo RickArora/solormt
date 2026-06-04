@@ -2,6 +2,7 @@
 
 import { FormEvent, ReactNode, useEffect, useState } from "react";
 import Link from "next/link";
+import RecaptchaField from "@/components/RecaptchaField";
 import { api, Appointment, Clinic, IntakeResponse, Payment } from "@/lib/api";
 import { CalendarClock, FileText, ReceiptText, RotateCcw } from "lucide-react";
 
@@ -57,6 +58,7 @@ export default function ClientPortal({ clinicSlug }: { clinicSlug: string }) {
         first_name: String(form.get("first_name")),
         last_name: String(form.get("last_name")),
         phone: String(form.get("phone")),
+        recaptcha_token: String(form.get("recaptcha_token")),
       });
       window.localStorage.setItem(`solormt_client_access_${clinicSlug}`, response.access);
       window.localStorage.setItem(`solormt_client_refresh_${clinicSlug}`, response.refresh);
@@ -111,7 +113,9 @@ export default function ClientPortal({ clinicSlug }: { clinicSlug: string }) {
               </div>
             ) : null}
             <Field name="email" label="Email" type="email" required />
-            <Field name="password" label="Password" type="password" required />
+            <Field name="password" label="Password" type="password" required minLength={12} />
+            <RecaptchaField action="client-portal-auth" />
+            <p className="text-xs text-slate-500">Use at least 12 characters. Common, numeric-only, or easily guessed passwords are rejected.</p>
             <button className="primary-button">{mode === "login" ? "Login" : "Create Portal Account"}</button>
           </form>
           {message ? <p className="mt-4 rounded-md border border-slate-200 bg-slate-50 p-3 text-sm text-slate-600">{message}</p> : null}
@@ -189,11 +193,11 @@ export default function ClientPortal({ clinicSlug }: { clinicSlug: string }) {
   );
 }
 
-function Field(props: { name: string; label: string; type?: string; required?: boolean; className?: string }) {
+function Field(props: { name: string; label: string; type?: string; required?: boolean; className?: string; minLength?: number }) {
   return (
     <label className={`grid gap-1 text-sm font-medium text-slate-700 ${props.className || ""}`}>
       {props.label}
-      <input name={props.name} type={props.type || "text"} required={props.required} className="form-input" />
+      <input name={props.name} type={props.type || "text"} required={props.required} minLength={props.minLength} className="form-input" />
     </label>
   );
 }

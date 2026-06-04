@@ -13,19 +13,21 @@ from .models import (
     Service,
     UserProfile,
 )
+from .security import validate_strong_password, verify_recaptcha
 from .utils import ensure_clinic_defaults
 
 User = get_user_model()
 
 
 class RegisterSerializer(serializers.ModelSerializer):
-    password = serializers.CharField(write_only=True, min_length=8)
+    password = serializers.CharField(write_only=True, min_length=12)
+    recaptcha_token = serializers.CharField(write_only=True, required=False, allow_blank=True)
     role = serializers.ChoiceField(choices=UserProfile.Role.choices, default=UserProfile.Role.CLINIC_OWNER)
     clinic_name = serializers.CharField(max_length=160, required=False, allow_blank=True)
 
     class Meta:
         model = User
-        fields = ["id", "email", "password", "first_name", "last_name", "role", "clinic_name"]
+        fields = ["id", "email", "password", "first_name", "last_name", "role", "clinic_name", "recaptcha_token"]
         read_only_fields = ["id"]
 
     def validate_email(self, value: str) -> str:
@@ -33,6 +35,15 @@ class RegisterSerializer(serializers.ModelSerializer):
         if User.objects.filter(email=normalized).exists():
             raise serializers.ValidationError("An account with this email already exists.")
         return normalized
+
+    def validate_password(self, value: str) -> str:
+        validate_strong_password(value)
+        return value
+
+    def validate(self, attrs):
+        request = self.context.get("request")
+        verify_recaptcha(attrs.pop("recaptcha_token", ""), request.META.get("REMOTE_ADDR", "") if request else "")
+        return attrs
 
     @transaction.atomic
     def create(self, validated_data):
@@ -194,7 +205,8 @@ class PublicBookingSerializer(serializers.Serializer):
     first_name = serializers.CharField(max_length=100)
     last_name = serializers.CharField(max_length=100)
     email = serializers.EmailField()
-    password = serializers.CharField(min_length=8, write_only=True)
+    password = serializers.CharField(min_length=12, write_only=True)
+    recaptcha_token = serializers.CharField(write_only=True, required=False, allow_blank=True)
     phone = serializers.CharField(max_length=40, required=False, allow_blank=True)
     health_history = serializers.CharField(required=False, allow_blank=True)
     consent_accepted = serializers.BooleanField()
@@ -206,14 +218,29 @@ class PublicBookingSerializer(serializers.Serializer):
             raise serializers.ValidationError("Consent is required to book online.")
         return value
 
+    def validate(self, attrs):
+        request = self.context.get("request")
+        verify_recaptcha(attrs.pop("recaptcha_token", ""), request.META.get("REMOTE_ADDR", "") if request else "")
+        if attrs.get("auth_mode") == "register":
+            validate_strong_password(attrs["password"])
+        return attrs
+
 
 class ClientPortalAuthSerializer(serializers.Serializer):
     mode = serializers.ChoiceField(choices=["register", "login"])
     email = serializers.EmailField()
-    password = serializers.CharField(min_length=8)
+    password = serializers.CharField(min_length=12)
+    recaptcha_token = serializers.CharField(write_only=True, required=False, allow_blank=True)
     first_name = serializers.CharField(max_length=100, required=False, allow_blank=True)
     last_name = serializers.CharField(max_length=100, required=False, allow_blank=True)
     phone = serializers.CharField(max_length=40, required=False, allow_blank=True)
+
+    def validate(self, attrs):
+        request = self.context.get("request")
+        verify_recaptcha(attrs.pop("recaptcha_token", ""), request.META.get("REMOTE_ADDR", "") if request else "")
+        if attrs.get("mode") == "register":
+            validate_strong_password(attrs["password"])
+        return attrs
 
 
 class AppointmentReminderSerializer(serializers.ModelSerializer):
