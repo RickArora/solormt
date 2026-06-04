@@ -13,6 +13,8 @@ export type Appointment = {
   id: number;
   client: number;
   client_name: string;
+  practitioner: number | null;
+  practitioner_name: string;
   service: string;
   date: string;
   time: string;
@@ -37,10 +39,14 @@ export type Payment = {
   id: number;
   client: number;
   client_name: string;
+  appointment: number | null;
+  kind: "invoice" | "deposit" | "card_on_file" | "full_payment";
+  provider: "stripe" | "square" | "manual";
   amount_cents: number;
   amount: string;
   currency: string;
   status: "paid" | "unpaid" | "failed" | "refunded";
+  checkout_url: string;
 };
 
 export type Metrics = {
@@ -63,13 +69,39 @@ export type Service = {
   is_active: boolean;
 };
 
+export type PractitionerAvailability = {
+  id: number;
+  weekday: number;
+  weekday_label: string;
+  start_time: string;
+  end_time: string;
+  is_active: boolean;
+};
+
+export type Practitioner = {
+  id: number;
+  first_name: string;
+  last_name: string;
+  display_name: string;
+  name: string;
+  email: string;
+  phone: string;
+  bio: string;
+  services: Service[];
+  availability: PractitionerAvailability[];
+  is_active: boolean;
+};
+
 export type IntakeResponse = {
   id: number;
   client_name: string;
   appointment: number | null;
   health_history: string;
   consent_accepted: boolean;
+  status: "sent" | "completed" | "needs_review";
   answers: Record<string, unknown>;
+  sent_at: string | null;
+  completed_at: string | null;
   created_at: string;
 };
 
@@ -84,8 +116,12 @@ export type Clinic = {
   cancellation_window_hours: number;
   deposit_required: boolean;
   deposit_amount_cents: number;
+  payment_provider: "stripe" | "square";
+  booking_payment_mode: "none" | "deposit" | "card_on_file" | "full_payment";
+  card_on_file_required: boolean;
   reminders_enabled: boolean;
   services: Service[];
+  practitioners: Practitioner[];
   intake_templates: Array<{ id: number; name: string; description: string; is_active: boolean }>;
   booking_url: string;
   app_url: string;
@@ -149,6 +185,29 @@ export const api = {
   updateClinic: (token: string, payload: Partial<Clinic>) =>
     request<Clinic>("/clinic/", { method: "PATCH", body: JSON.stringify(payload) }, token),
   services: (token: string) => request<Service[]>("/services/", {}, token),
+  practitioners: (token: string) => request<Practitioner[]>("/practitioners/", {}, token),
+  createPractitioner: (
+    token: string,
+    payload: {
+      first_name: string;
+      last_name: string;
+      display_name?: string;
+      email?: string;
+      phone?: string;
+      bio?: string;
+      service_ids?: number[];
+      is_active?: boolean;
+    }
+  ) => request<Practitioner>("/practitioners/", { method: "POST", body: JSON.stringify(payload) }, token),
+  createPractitionerAvailability: (
+    token: string,
+    practitionerId: number,
+    payload: { weekday: number; start_time: string; end_time: string; is_active?: boolean }
+  ) =>
+    request<PractitionerAvailability>(`/practitioners/${practitionerId}/availability/`, {
+      method: "POST",
+      body: JSON.stringify(payload)
+    }, token),
   intakeResponses: (token: string) => request<IntakeResponse[]>("/intake-responses/", {}, token),
   metrics: (token: string) => request<Metrics>("/dashboard/metrics/", {}, token),
   clients: (token: string) => request<Client[]>("/clients/", {}, token),
@@ -167,27 +226,85 @@ export const api = {
   publicAvailability: (clinicSlug: string) =>
     request<{
       clinic: Clinic;
+      practitioners: Practitioner[];
+      available_slots: Array<{ date: string; time: string; practitioner_id: number; practitioner_name: string }>;
       available_days: string[];
       available_times: string[];
-      booked: Array<{ date: string; time: string; duration_minutes: number; status: string }>;
+      booked: Array<{ date: string; time: string; duration_minutes: number; status: string; practitioner_id: number | null }>;
     }>(`/public/clinics/${clinicSlug}/availability/`),
+  publicAvailabilityFor: (clinicSlug: string, serviceId?: number, practitionerId?: number) => {
+    const params = new URLSearchParams();
+    if (serviceId) params.set("service_id", String(serviceId));
+    if (practitionerId) params.set("practitioner_id", String(practitionerId));
+    return request<{
+      clinic: Clinic;
+      practitioners: Practitioner[];
+      available_slots: Array<{ date: string; time: string; practitioner_id: number; practitioner_name: string }>;
+      available_days: string[];
+      available_times: string[];
+      booked: Array<{ date: string; time: string; duration_minutes: number; status: string; practitioner_id: number | null }>;
+    }>(`/public/clinics/${clinicSlug}/availability/${params.toString() ? `?${params.toString()}` : ""}`);
+  },
   publicBook: (
     clinicSlug: string,
     payload: {
+      auth_mode: "register" | "login";
       service_id: number;
+      practitioner_id: number;
       date: string;
       time: string;
       first_name: string;
       last_name: string;
       email: string;
+      password: string;
       phone: string;
       health_history: string;
       consent_accepted: boolean;
       pay_deposit: boolean;
+      save_card: boolean;
     }
   ) =>
-    request<{ appointment_id: number; client_id: number; intake_id: number; payment_id: number | null; status: string; message: string }>(
+    request<{
+      appointment_id: number;
+      client_id: number;
+      intake_id: number;
+      payment_id: number | null;
+      payment_required: boolean;
+      checkout_url: string;
+      client_access: string;
+      client_refresh: string;
+      status: string;
+      message: string;
+    }>(
       `/public/clinics/${clinicSlug}/book/`,
       { method: "POST", body: JSON.stringify(payload) }
+    ),
+  clientPortalAuth: (
+    clinicSlug: string,
+    payload: { mode: "register" | "login"; email: string; password: string; first_name?: string; last_name?: string; phone?: string }
+  ) =>
+    request<{ access: string; refresh: string; client_id: number; clinic: Clinic }>(
+      `/public/clinics/${clinicSlug}/portal/auth/`,
+      { method: "POST", body: JSON.stringify(payload) }
+    ),
+  clientPortal: (clinicSlug: string, token: string) =>
+    request<{
+      clinic: Clinic;
+      client: { id: number; name: string; email: string; phone: string };
+      appointments: Appointment[];
+      intake_responses: IntakeResponse[];
+      payments: Payment[];
+    }>(`/client/clinics/${clinicSlug}/portal/`, {}, token),
+  clientAppointmentAction: (
+    clinicSlug: string,
+    appointmentId: number,
+    action: "cancel" | "reschedule",
+    token: string,
+    payload: { date?: string; time?: string } = {}
+  ) =>
+    request<Appointment>(
+      `/client/clinics/${clinicSlug}/appointments/${appointmentId}/${action}/`,
+      { method: "POST", body: JSON.stringify(payload) },
+      token
     )
 };

@@ -5,6 +5,13 @@ from django.db import models
 class Client(models.Model):
     owner = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="clients")
     clinic = models.ForeignKey("core.Clinic", on_delete=models.CASCADE, related_name="clients", null=True, blank=True)
+    portal_user = models.OneToOneField(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        related_name="portal_client",
+        null=True,
+        blank=True,
+    )
     first_name = models.CharField(max_length=100)
     last_name = models.CharField(max_length=100)
     email = models.EmailField(blank=True)

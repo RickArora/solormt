@@ -45,7 +45,25 @@ class Command(BaseCommand):
                 "address": "123 Wellness Ave, Toronto, ON",
                 "deposit_required": True,
                 "deposit_amount_cents": 2500,
+                "booking_payment_mode": Clinic.BookingPaymentMode.DEPOSIT,
+                "card_on_file_required": False,
+                "payment_provider": Clinic.PaymentProvider.STRIPE,
             },
+        )
+        clinic.booking_payment_mode = Clinic.BookingPaymentMode.DEPOSIT
+        clinic.card_on_file_required = False
+        clinic.payment_provider = Clinic.PaymentProvider.STRIPE
+        clinic.deposit_required = True
+        clinic.deposit_amount_cents = 2500
+        clinic.save(
+            update_fields=[
+                "booking_payment_mode",
+                "card_on_file_required",
+                "payment_provider",
+                "deposit_required",
+                "deposit_amount_cents",
+                "updated_at",
+            ]
         )
         ClinicMembership.objects.get_or_create(user=user, clinic=clinic, defaults={"role": ClinicMembership.Role.OWNER})
         ensure_clinic_defaults(clinic)

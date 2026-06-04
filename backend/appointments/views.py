@@ -10,7 +10,7 @@ class AppointmentViewSet(ModelViewSet):
 
     def get_queryset(self):
         clinic = get_default_clinic(self.request.user)
-        return Appointment.objects.select_related("client", "service_ref").filter(owner=self.request.user, clinic=clinic)
+        return Appointment.objects.select_related("client", "service_ref", "practitioner").filter(owner=self.request.user, clinic=clinic)
 
     def perform_create(self, serializer):
         serializer.save(owner=self.request.user, clinic=get_default_clinic(self.request.user))

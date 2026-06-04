@@ -55,6 +55,10 @@ textarea {
   @apply focus-ring inline-flex min-h-11 items-center justify-center gap-2 rounded-md bg-skybrand px-4 text-sm font-semibold text-white shadow-sm transition hover:bg-[#168ee8] disabled:cursor-not-allowed disabled:opacity-60;
 }
 
+.secondary-button {
+  @apply focus-ring inline-flex min-h-11 items-center justify-center gap-2 rounded-md border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 shadow-sm transition hover:border-skybrand hover:text-skybrand;
+}
+
 .soft-grid {
   background-image:
     linear-gradient(rgba(59, 168, 255, 0.08) 1px, transparent 1px),

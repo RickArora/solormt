@@ -1,8 +1,18 @@
-from django.contrib.auth import get_user_model
+from django.contrib.auth import authenticate, get_user_model
 from django.db import transaction
 from rest_framework import serializers
 
-from .models import Clinic, ClinicMembership, IntakeResponse, IntakeTemplate, Service, UserProfile
+from .models import (
+    AppointmentReminder,
+    Clinic,
+    ClinicMembership,
+    IntakeResponse,
+    IntakeTemplate,
+    Practitioner,
+    PractitionerAvailability,
+    Service,
+    UserProfile,
+)
 from .utils import ensure_clinic_defaults
 
 User = get_user_model()
@@ -59,6 +69,52 @@ class ServiceSerializer(serializers.ModelSerializer):
         return f"{obj.price_cents / 100:.2f}"
 
 
+class PractitionerAvailabilitySerializer(serializers.ModelSerializer):
+    weekday_label = serializers.CharField(source="get_weekday_display", read_only=True)
+
+    class Meta:
+        model = PractitionerAvailability
+        fields = ["id", "weekday", "weekday_label", "start_time", "end_time", "is_active"]
+        read_only_fields = ["id", "weekday_label"]
+
+
+class PractitionerSerializer(serializers.ModelSerializer):
+    availability = PractitionerAvailabilitySerializer(many=True, read_only=True)
+    service_ids = serializers.PrimaryKeyRelatedField(
+        source="services",
+        queryset=Service.objects.all(),
+        many=True,
+        required=False,
+        write_only=True,
+    )
+    services = ServiceSerializer(many=True, read_only=True)
+    name = serializers.CharField(read_only=True)
+
+    class Meta:
+        model = Practitioner
+        fields = [
+            "id",
+            "first_name",
+            "last_name",
+            "display_name",
+            "name",
+            "email",
+            "phone",
+            "bio",
+            "services",
+            "service_ids",
+            "availability",
+            "is_active",
+        ]
+        read_only_fields = ["id", "name", "services", "availability"]
+
+    def validate_service_ids(self, services):
+        clinic = self.context.get("clinic")
+        if clinic and any(service.clinic_id != clinic.id for service in services):
+            raise serializers.ValidationError("Services must belong to this clinic.")
+        return services
+
+
 class IntakeTemplateSerializer(serializers.ModelSerializer):
     class Meta:
         model = IntakeTemplate
@@ -78,10 +134,13 @@ class IntakeResponseSerializer(serializers.ModelSerializer):
             "appointment",
             "health_history",
             "consent_accepted",
+            "status",
             "answers",
+            "sent_at",
+            "completed_at",
             "created_at",
         ]
-        read_only_fields = ["id", "client_name", "created_at"]
+        read_only_fields = ["id", "client_name", "sent_at", "completed_at", "created_at"]
 
     def get_client_name(self, obj: IntakeResponse) -> str:
         return str(obj.client)
@@ -89,6 +148,7 @@ class IntakeResponseSerializer(serializers.ModelSerializer):
 
 class ClinicSerializer(serializers.ModelSerializer):
     services = ServiceSerializer(many=True, read_only=True)
+    practitioners = PractitionerSerializer(many=True, read_only=True)
     intake_templates = IntakeTemplateSerializer(many=True, read_only=True)
     booking_url = serializers.SerializerMethodField()
     app_url = serializers.SerializerMethodField()
@@ -106,13 +166,17 @@ class ClinicSerializer(serializers.ModelSerializer):
             "cancellation_window_hours",
             "deposit_required",
             "deposit_amount_cents",
+            "payment_provider",
+            "booking_payment_mode",
+            "card_on_file_required",
             "reminders_enabled",
             "services",
+            "practitioners",
             "intake_templates",
             "booking_url",
             "app_url",
         ]
-        read_only_fields = ["id", "slug", "services", "intake_templates", "booking_url", "app_url"]
+        read_only_fields = ["id", "slug", "services", "practitioners", "intake_templates", "booking_url", "app_url"]
 
     def get_booking_url(self, obj: Clinic) -> str:
         return f"/book/{obj.slug}"
@@ -122,18 +186,40 @@ class ClinicSerializer(serializers.ModelSerializer):
 
 
 class PublicBookingSerializer(serializers.Serializer):
+    auth_mode = serializers.ChoiceField(choices=["register", "login"], default="register")
     service_id = serializers.IntegerField()
+    practitioner_id = serializers.IntegerField()
     date = serializers.DateField()
     time = serializers.TimeField()
     first_name = serializers.CharField(max_length=100)
     last_name = serializers.CharField(max_length=100)
     email = serializers.EmailField()
+    password = serializers.CharField(min_length=8, write_only=True)
     phone = serializers.CharField(max_length=40, required=False, allow_blank=True)
     health_history = serializers.CharField(required=False, allow_blank=True)
     consent_accepted = serializers.BooleanField()
     pay_deposit = serializers.BooleanField(default=False)
+    save_card = serializers.BooleanField(default=False)
 
     def validate_consent_accepted(self, value):
         if not value:
             raise serializers.ValidationError("Consent is required to book online.")
         return value
+
+
+class ClientPortalAuthSerializer(serializers.Serializer):
+    mode = serializers.ChoiceField(choices=["register", "login"])
+    email = serializers.EmailField()
+    password = serializers.CharField(min_length=8)
+    first_name = serializers.CharField(max_length=100, required=False, allow_blank=True)
+    last_name = serializers.CharField(max_length=100, required=False, allow_blank=True)
+    phone = serializers.CharField(max_length=40, required=False, allow_blank=True)
+
+
+class AppointmentReminderSerializer(serializers.ModelSerializer):
+    kind_label = serializers.CharField(source="get_kind_display", read_only=True)
+    channel_label = serializers.CharField(source="get_channel_display", read_only=True)
+
+    class Meta:
+        model = AppointmentReminder
+        fields = ["id", "kind", "kind_label", "channel", "channel_label", "status", "scheduled_for", "message"]

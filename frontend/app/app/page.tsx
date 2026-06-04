@@ -10,6 +10,7 @@ import {
   IntakeResponse,
   Metrics,
   Payment,
+  Practitioner,
   Service,
   SoapNote
 } from "@/lib/api";
@@ -27,7 +28,7 @@ import {
 } from "lucide-react";
 
 type Tab = "overview" | "clients" | "appointments" | "soap" | "payments";
-type AdminTab = Tab | "intake" | "settings";
+type AdminTab = Tab | "team" | "intake" | "settings";
 
 const emptyMetrics: Metrics = {
   total_clients: 0,
@@ -53,6 +54,7 @@ export default function AppPage() {
   const [metrics, setMetrics] = useState<Metrics>(emptyMetrics);
   const [clinic, setClinic] = useState<Clinic | null>(null);
   const [services, setServices] = useState<Service[]>([]);
+  const [practitioners, setPractitioners] = useState<Practitioner[]>([]);
   const [intakeResponses, setIntakeResponses] = useState<IntakeResponse[]>([]);
   const [clients, setClients] = useState<Client[]>([]);
   const [appointments, setAppointments] = useState<Appointment[]>([]);
@@ -70,9 +72,10 @@ export default function AppPage() {
     setLoading(true);
     setMessage("");
     try {
-      const [nextClinic, nextServices, nextIntakeResponses, nextMetrics, nextClients, nextAppointments, nextNotes, nextPayments] = await Promise.all([
+      const [nextClinic, nextServices, nextPractitioners, nextIntakeResponses, nextMetrics, nextClients, nextAppointments, nextNotes, nextPayments] = await Promise.all([
         api.clinic(activeToken),
         api.services(activeToken),
+        api.practitioners(activeToken),
         api.intakeResponses(activeToken),
         api.metrics(activeToken),
         api.clients(activeToken),
@@ -82,6 +85,7 @@ export default function AppPage() {
       ]);
       setClinic(nextClinic);
       setServices(nextServices);
+      setPractitioners(nextPractitioners);
       setIntakeResponses(nextIntakeResponses);
       setMetrics(nextMetrics);
       setClients(nextClients);
@@ -167,6 +171,7 @@ export default function AppPage() {
     try {
       await api.createAppointment(token, {
         client: Number(form.get("client")),
+        practitioner: form.get("practitioner") ? Number(form.get("practitioner")) : null,
         service: String(form.get("service")),
         date: String(form.get("date")),
         time: String(form.get("time")),
@@ -233,6 +238,56 @@ export default function AppPage() {
     }
   }
 
+  async function submitPractitioner(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!token) return;
+    const formElement = event.currentTarget;
+    const form = new FormData(formElement);
+    setLoading(true);
+    try {
+      await api.createPractitioner(token, {
+        first_name: String(form.get("first_name")),
+        last_name: String(form.get("last_name")),
+        display_name: String(form.get("display_name")),
+        email: String(form.get("email")),
+        phone: String(form.get("phone")),
+        bio: String(form.get("bio")),
+        service_ids: form.getAll("service_ids").map((value) => Number(value)),
+        is_active: true,
+      });
+      formElement.reset();
+      setMessage("Practitioner saved.");
+      await refresh();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Could not save practitioner.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function submitAvailability(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!token) return;
+    const formElement = event.currentTarget;
+    const form = new FormData(formElement);
+    setLoading(true);
+    try {
+      await api.createPractitionerAvailability(token, Number(form.get("practitioner")), {
+        weekday: Number(form.get("weekday")),
+        start_time: String(form.get("start_time")),
+        end_time: String(form.get("end_time")),
+        is_active: true,
+      });
+      formElement.reset();
+      setMessage("Availability saved.");
+      await refresh();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Could not save availability.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
   async function submitClinicSettings(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!token) return;
@@ -248,6 +303,9 @@ export default function AppPage() {
         cancellation_window_hours: Number(form.get("cancellation_window_hours")),
         deposit_required: form.get("deposit_required") === "on",
         deposit_amount_cents: Math.round(Number(form.get("deposit_amount")) * 100),
+        payment_provider: String(form.get("payment_provider")) as Clinic["payment_provider"],
+        booking_payment_mode: String(form.get("booking_payment_mode")) as Clinic["booking_payment_mode"],
+        card_on_file_required: form.get("card_on_file_required") === "on",
         reminders_enabled: form.get("reminders_enabled") === "on",
       });
       setClinic(updated);
@@ -264,6 +322,7 @@ export default function AppPage() {
       { id: "overview" as Tab, label: "Overview", icon: Stethoscope },
       { id: "clients" as Tab, label: "Clients", icon: UserPlus },
       { id: "appointments" as Tab, label: "Appointments", icon: CalendarPlus },
+      { id: "team" as AdminTab, label: "Team", icon: UserPlus },
       { id: "soap" as Tab, label: "SOAP", icon: ClipboardList },
       { id: "payments" as Tab, label: "Payments", icon: CreditCard },
       { id: "intake" as AdminTab, label: "Intake", icon: FileText },
@@ -401,9 +460,32 @@ export default function AppPage() {
         {tab === "appointments" ? (
           <CrudLayout
             title="Appointments"
-            form={<AppointmentForm clients={clients} onSubmit={submitAppointment} />}
+            form={<AppointmentForm clients={clients} practitioners={practitioners} onSubmit={submitAppointment} />}
             list={<ScheduleBoard appointments={appointments} />}
           />
+        ) : null}
+
+        {tab === "team" ? (
+          <div className="mt-6 grid gap-6 lg:grid-cols-[0.82fr_1.18fr]">
+            <Panel title="Add Practitioner">
+              <PractitionerForm services={services} onSubmit={submitPractitioner} />
+            </Panel>
+            <div className="grid gap-6">
+              <Panel title="Weekly Availability">
+                <AvailabilityForm practitioners={practitioners} onSubmit={submitAvailability} />
+              </Panel>
+              <Panel title="Practitioners">
+                <RecordList
+                  empty="No practitioners yet."
+                  rows={practitioners.map((practitioner) => ({
+                    title: practitioner.name,
+                    meta: `${practitioner.email || "No email"} - ${practitioner.services.map((service) => service.name).join(", ") || "No services assigned"}`,
+                    tag: practitioner.is_active ? "active" : "hidden",
+                  }))}
+                />
+              </Panel>
+            </div>
+          </div>
         ) : null}
 
         {tab === "soap" ? (
@@ -437,7 +519,7 @@ export default function AppPage() {
                 rows={intakeResponses.map((response) => ({
                   title: response.client_name,
                   meta: `${response.health_history || "No health history provided"} - consent ${response.consent_accepted ? "accepted" : "missing"}`,
-                  tag: response.consent_accepted ? "consented" : "needs review",
+                  tag: response.status,
                 }))}
               />
             </Panel>
@@ -613,8 +695,8 @@ function ScheduleBoard({ appointments }: { appointments: Appointment[] }) {
                     className="absolute left-2 right-2 rounded-md border border-skybrand/30 bg-blue-50 p-2 text-xs shadow-sm"
                     style={{ top: `${48 + index * 126}px` }}
                   >
-                    <p className="font-semibold text-ink">{appointment.time.slice(0, 5)} {appointment.client_name}</p>
-                    <p className="mt-1 text-slate-600">{appointment.service}</p>
+                  <p className="font-semibold text-ink">{appointment.time.slice(0, 5)} {appointment.client_name}</p>
+                    <p className="mt-1 text-slate-600">{appointment.service}{appointment.practitioner_name ? ` - ${appointment.practitioner_name}` : ""}</p>
                     <span className="mt-2 inline-block rounded bg-white px-2 py-1 font-semibold text-skybrand">{appointment.status}</span>
                   </div>
                 ))}
@@ -633,6 +715,7 @@ function ScheduleBoard({ appointments }: { appointments: Appointment[] }) {
                 </p>
                 <h4 className="mt-1 font-semibold text-ink">{appointment.client_name}</h4>
                 <p className="text-sm text-slate-600">{appointment.service}</p>
+                {appointment.practitioner_name ? <p className="text-sm text-slate-500">{appointment.practitioner_name}</p> : null}
               </div>
               <span className="rounded-md bg-blue-50 px-2 py-1 text-xs font-semibold text-skybrand">{appointment.status}</span>
             </div>
@@ -665,11 +748,11 @@ function Field(props: {
   );
 }
 
-function Select(props: { name: string; label: string; children: ReactNode; required?: boolean }) {
+function Select(props: { name: string; label: string; children: ReactNode; required?: boolean; defaultValue?: string }) {
   return (
     <label className="grid gap-1 text-sm font-medium text-slate-700">
       {props.label}
-      <select name={props.name} required={props.required} className="form-input">
+      <select name={props.name} required={props.required} defaultValue={props.defaultValue} className="form-input">
         {props.children}
       </select>
     </label>
@@ -711,7 +794,15 @@ function ClientForm({ onSubmit }: { onSubmit: (event: FormEvent<HTMLFormElement>
   );
 }
 
-function AppointmentForm({ clients, onSubmit }: { clients: Client[]; onSubmit: (event: FormEvent<HTMLFormElement>) => void }) {
+function AppointmentForm({
+  clients,
+  practitioners,
+  onSubmit
+}: {
+  clients: Client[];
+  practitioners: Practitioner[];
+  onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+}) {
   return (
     <form onSubmit={onSubmit} className="grid gap-4">
       <Select name="client" label="Client" required>
@@ -719,6 +810,14 @@ function AppointmentForm({ clients, onSubmit }: { clients: Client[]; onSubmit: (
         {clients.map((client) => (
           <option key={client.id} value={client.id}>
             {client.first_name} {client.last_name}
+          </option>
+        ))}
+      </Select>
+      <Select name="practitioner" label="Practitioner">
+        <option value="">Select practitioner</option>
+        {practitioners.map((practitioner) => (
+          <option key={practitioner.id} value={practitioner.id}>
+            {practitioner.name}
           </option>
         ))}
       </Select>
@@ -803,6 +902,64 @@ function PaymentForm({ clients, onSubmit }: { clients: Client[]; onSubmit: (even
   );
 }
 
+function PractitionerForm({ services, onSubmit }: { services: Service[]; onSubmit: (event: FormEvent<HTMLFormElement>) => void }) {
+  return (
+    <form onSubmit={onSubmit} className="grid gap-4">
+      <div className="grid gap-4 sm:grid-cols-2">
+        <Field name="first_name" label="First Name" required />
+        <Field name="last_name" label="Last Name" required />
+      </div>
+      <Field name="display_name" label="Display Name" />
+      <div className="grid gap-4 sm:grid-cols-2">
+        <Field name="email" label="Email" type="email" />
+        <Field name="phone" label="Phone" />
+      </div>
+      <TextArea name="bio" label="Bio" />
+      <label className="grid gap-2 text-sm font-medium text-slate-700">
+        Services Offered
+        <div className="grid gap-2 rounded-md border border-slate-200 bg-slate-50 p-3">
+          {services.map((service) => (
+            <label key={service.id} className="flex items-center gap-2 font-normal text-slate-700">
+              <input name="service_ids" type="checkbox" value={service.id} className="size-4" />
+              {service.name}
+            </label>
+          ))}
+        </div>
+      </label>
+      <SubmitButton>Save Practitioner</SubmitButton>
+    </form>
+  );
+}
+
+function AvailabilityForm({ practitioners, onSubmit }: { practitioners: Practitioner[]; onSubmit: (event: FormEvent<HTMLFormElement>) => void }) {
+  return (
+    <form onSubmit={onSubmit} className="grid gap-4">
+      <Select name="practitioner" label="Practitioner" required>
+        <option value="">Select practitioner</option>
+        {practitioners.map((practitioner) => (
+          <option key={practitioner.id} value={practitioner.id}>
+            {practitioner.name}
+          </option>
+        ))}
+      </Select>
+      <Select name="weekday" label="Day" required>
+        <option value="0">Monday</option>
+        <option value="1">Tuesday</option>
+        <option value="2">Wednesday</option>
+        <option value="3">Thursday</option>
+        <option value="4">Friday</option>
+        <option value="5">Saturday</option>
+        <option value="6">Sunday</option>
+      </Select>
+      <div className="grid gap-4 sm:grid-cols-2">
+        <Field name="start_time" label="Start" type="time" required defaultValue="09:00" />
+        <Field name="end_time" label="End" type="time" required defaultValue="17:00" />
+      </div>
+      <SubmitButton>Save Availability</SubmitButton>
+    </form>
+  );
+}
+
 function ClinicSettingsForm({ clinic, onSubmit }: { clinic: Clinic; onSubmit: (event: FormEvent<HTMLFormElement>) => void }) {
   return (
     <form onSubmit={onSubmit} className="grid gap-4">
@@ -820,9 +977,25 @@ function ClinicSettingsForm({ clinic, onSubmit }: { clinic: Clinic; onSubmit: (e
         <Field name="cancellation_window_hours" label="Cancel Window Hours" type="number" defaultValue={String(clinic.cancellation_window_hours)} />
         <Field name="deposit_amount" label="Deposit Amount CAD" type="number" defaultValue={String(clinic.deposit_amount_cents / 100)} />
       </div>
+      <div className="grid gap-4 sm:grid-cols-2">
+        <Select name="payment_provider" label="Payment Provider" defaultValue={clinic.payment_provider}>
+          <option value="stripe">Stripe</option>
+          <option value="square">Square</option>
+        </Select>
+        <Select name="booking_payment_mode" label="Booking Payment Mode" defaultValue={clinic.booking_payment_mode}>
+          <option value="none">None</option>
+          <option value="deposit">Deposit</option>
+          <option value="card_on_file">Card on file</option>
+          <option value="full_payment">Full payment</option>
+        </Select>
+      </div>
       <label className="flex items-center gap-2 text-sm font-medium text-slate-700">
         <input name="deposit_required" type="checkbox" defaultChecked={clinic.deposit_required} className="size-4" />
         Require deposit for online booking
+      </label>
+      <label className="flex items-center gap-2 text-sm font-medium text-slate-700">
+        <input name="card_on_file_required" type="checkbox" defaultChecked={clinic.card_on_file_required} className="size-4" />
+        Require secure card on file
       </label>
       <label className="flex items-center gap-2 text-sm font-medium text-slate-700">
         <input name="reminders_enabled" type="checkbox" defaultChecked={clinic.reminders_enabled} className="size-4" />

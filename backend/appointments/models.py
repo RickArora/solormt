@@ -13,6 +13,7 @@ class Appointment(models.Model):
     clinic = models.ForeignKey("core.Clinic", on_delete=models.CASCADE, related_name="appointments", null=True, blank=True)
     client = models.ForeignKey("clients.Client", on_delete=models.CASCADE, related_name="appointments")
     service_ref = models.ForeignKey("core.Service", on_delete=models.SET_NULL, null=True, blank=True)
+    practitioner = models.ForeignKey("core.Practitioner", on_delete=models.SET_NULL, null=True, blank=True, related_name="appointments")
     service = models.CharField(max_length=160)
     date = models.DateField()
     time = models.TimeField()

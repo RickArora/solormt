@@ -1,4 +1,8 @@
-from .models import Clinic, ClinicMembership, IntakeTemplate, Service
+from datetime import datetime, time, timedelta
+
+from django.utils import timezone
+
+from .models import AppointmentReminder, Clinic, ClinicMembership, IntakeTemplate, Practitioner, PractitionerAvailability, Service
 
 
 def get_default_clinic(user):
@@ -29,3 +33,43 @@ def ensure_clinic_defaults(clinic):
             name="New Client Intake + Consent",
             description="Health history, treatment consent, and clinic policy acknowledgement.",
         )
+    if not clinic.practitioners.exists():
+        practitioner = Practitioner.objects.create(
+            clinic=clinic,
+            first_name="Primary",
+            last_name="Practitioner",
+            display_name="Primary Practitioner",
+            email=clinic.public_email,
+        )
+        practitioner.services.set(clinic.services.all())
+        PractitionerAvailability.objects.bulk_create(
+            [
+                PractitionerAvailability(practitioner=practitioner, weekday=weekday, start_time=time(9, 0), end_time=time(17, 0))
+                for weekday in range(5)
+            ]
+        )
+
+
+def queue_appointment_reminders(appointment):
+    clinic = appointment.clinic
+    if not clinic or not clinic.reminders_enabled:
+        return
+
+    appointment_start = timezone.make_aware(datetime.combine(appointment.date, appointment.time))
+    reminders = [
+        (AppointmentReminder.Kind.CONFIRMATION, timezone.now()),
+        (AppointmentReminder.Kind.FORTY_EIGHT_HOUR, appointment_start - timedelta(hours=48)),
+        (AppointmentReminder.Kind.SAME_DAY, appointment_start.replace(hour=8, minute=0, second=0, microsecond=0)),
+    ]
+    for kind, scheduled_for in reminders:
+        for channel in (AppointmentReminder.Channel.EMAIL, AppointmentReminder.Channel.SMS):
+            AppointmentReminder.objects.get_or_create(
+                clinic=clinic,
+                appointment=appointment,
+                kind=kind,
+                channel=channel,
+                defaults={
+                    "scheduled_for": max(scheduled_for, timezone.now()),
+                    "message": "Appointment reminder queued. SMS/email content must avoid health details.",
+                },
+            )
