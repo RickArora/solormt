@@ -4,12 +4,16 @@ import { FormEvent, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import RecaptchaField from "@/components/RecaptchaField";
 import { api, Clinic, Practitioner, Service } from "@/lib/api";
-import { CalendarCheck, CheckCircle2, CreditCard, FileText, LockKeyhole, UserRound } from "lucide-react";
+import { CalendarCheck, CheckCircle2, Clock, CreditCard, FileText, LockKeyhole, UserRound } from "lucide-react";
 
 type Slot = { date: string; time: string; practitioner_id: number; practitioner_name: string };
 
 function dollars(cents: number) {
   return new Intl.NumberFormat("en-CA", { style: "currency", currency: "CAD" }).format(cents / 100);
+}
+
+function formatDate(value: string) {
+  return new Intl.DateTimeFormat("en-CA", { weekday: "short", month: "short", day: "numeric" }).format(new Date(`${value}T12:00:00`));
 }
 
 export default function BookingClient({ clinicSlug }: { clinicSlug: string }) {
@@ -19,6 +23,7 @@ export default function BookingClient({ clinicSlug }: { clinicSlug: string }) {
   const [slots, setSlots] = useState<Slot[]>([]);
   const [selectedService, setSelectedService] = useState("");
   const [selectedPractitioner, setSelectedPractitioner] = useState("");
+  const [selectedSlot, setSelectedSlot] = useState<Slot | null>(null);
   const [authMode, setAuthMode] = useState<"register" | "login">("register");
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(true);
@@ -56,20 +61,30 @@ export default function BookingClient({ clinicSlug }: { clinicSlug: string }) {
     () => services.find((service) => String(service.id) === selectedService),
     [services, selectedService]
   );
+  const slotGroups = useMemo(() => {
+    const groups = new Map<string, Slot[]>();
+    slots.forEach((slot) => {
+      if (!groups.has(slot.date)) groups.set(slot.date, []);
+      groups.get(slot.date)?.push(slot);
+    });
+    return Array.from(groups.entries()).slice(0, 7);
+  }, [slots]);
 
   async function submitBooking(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
-    const slotValue = String(form.get("slot"));
-    const [date, time] = slotValue.split("|");
     setMessage("");
+    if (!selectedService || !selectedPractitioner || !selectedSlot) {
+      setMessage("Choose a service, practitioner, and open appointment time.");
+      return;
+    }
     try {
       const response = await api.publicBook(clinicSlug, {
         auth_mode: authMode,
-        service_id: Number(form.get("service_id")),
-        practitioner_id: Number(form.get("practitioner_id")),
-        date,
-        time,
+        service_id: Number(selectedService),
+        practitioner_id: Number(selectedPractitioner),
+        date: selectedSlot.date,
+        time: selectedSlot.time,
         first_name: String(form.get("first_name")),
         last_name: String(form.get("last_name")),
         email: String(form.get("email")),
@@ -86,6 +101,7 @@ export default function BookingClient({ clinicSlug }: { clinicSlug: string }) {
         window.localStorage.setItem(`solormt_client_refresh_${clinicSlug}`, response.client_refresh);
       }
       setConfirmed(response);
+      setSelectedSlot(null);
       event.currentTarget.reset();
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Could not book appointment.");
@@ -160,47 +176,126 @@ export default function BookingClient({ clinicSlug }: { clinicSlug: string }) {
           {message ? <p className="mt-4 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">{message}</p> : null}
 
           <div className="mt-5 grid gap-4">
-            <div className="grid gap-4 sm:grid-cols-2">
-              <label className="grid gap-1 text-sm font-medium text-slate-700">
-                Service
-                <select name="service_id" required className="form-input" value={selectedService} onChange={(event) => setSelectedService(event.target.value)}>
-                  <option value="">Select service</option>
-                  {services.map((service) => (
-                    <option key={service.id} value={service.id}>
-                      {service.name} - {service.duration_minutes} min - {dollars(service.price_cents)}
-                    </option>
+            <section className="grid gap-3">
+              <div>
+                <p className="text-sm font-semibold text-ink">1. Choose service</p>
+                <p className="text-xs text-slate-500">Duration and booking payment rules update from this choice.</p>
+              </div>
+              <div className="grid gap-3 md:grid-cols-3">
+                {services.map((service) => {
+                  const active = selectedService === String(service.id);
+                  return (
+                    <button
+                      key={service.id}
+                      type="button"
+                      onClick={() => {
+                        setSelectedService(String(service.id));
+                        setSelectedSlot(null);
+                        if (selectedPractitioner && !practitioners.find((p) => String(p.id) === selectedPractitioner)?.services.some((s) => s.id === service.id)) {
+                          setSelectedPractitioner("");
+                        }
+                      }}
+                      className={`min-h-28 rounded-md border p-3 text-left transition ${
+                        active ? "border-skybrand bg-blue-50 shadow-sm" : "border-slate-200 bg-white hover:border-skybrand"
+                      }`}
+                    >
+                      <p className="font-semibold text-ink">{service.name}</p>
+                      <p className="mt-2 text-sm text-slate-600">{service.duration_minutes} min</p>
+                      <p className="mt-1 text-sm font-semibold text-skybrand">{dollars(service.price_cents)}</p>
+                    </button>
+                  );
+                })}
+              </div>
+              <input type="hidden" name="service_id" value={selectedService} />
+            </section>
+
+            <section className="grid gap-3">
+              <div>
+                <p className="text-sm font-semibold text-ink">2. Choose practitioner</p>
+                <p className="text-xs text-slate-500">Only practitioners offering the selected service are shown.</p>
+              </div>
+              <div className="grid gap-3 sm:grid-cols-2">
+                {practitioners.map((practitioner) => {
+                  const active = selectedPractitioner === String(practitioner.id);
+                  const initials = practitioner.name.split(" ").map((part) => part[0]).join("").slice(0, 2);
+                  return (
+                    <button
+                      key={practitioner.id}
+                      type="button"
+                      onClick={() => {
+                        setSelectedPractitioner(String(practitioner.id));
+                        setSelectedSlot(null);
+                      }}
+                      className={`flex min-h-24 items-start gap-3 rounded-md border p-3 text-left transition ${
+                        active ? "border-skybrand bg-blue-50 shadow-sm" : "border-slate-200 bg-white hover:border-skybrand"
+                      }`}
+                    >
+                      <span className="grid size-11 shrink-0 place-items-center rounded-md bg-slate-100 text-sm font-semibold text-slate-700">{initials}</span>
+                      <span className="min-w-0">
+                        <span className="block font-semibold text-ink">{practitioner.name}</span>
+                        <span className="mt-1 block text-sm text-slate-600">
+                          {practitioner.services.map((service) => service.name).join(", ") || "No services assigned"}
+                        </span>
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+              <input type="hidden" name="practitioner_id" value={selectedPractitioner} />
+            </section>
+
+            <section className="grid gap-3">
+              <div className="flex flex-col justify-between gap-2 sm:flex-row sm:items-end">
+                <div>
+                  <p className="text-sm font-semibold text-ink">3. Pick an open slot</p>
+                  <p className="text-xs text-slate-500">Open times are pulled from practitioner availability and existing bookings.</p>
+                </div>
+                {loading ? <span className="text-xs font-semibold text-skybrand">Refreshing slots...</span> : null}
+              </div>
+              {!selectedService || !selectedPractitioner ? (
+                <p className="rounded-md border border-dashed border-slate-300 bg-slate-50 p-4 text-sm text-slate-500">
+                  Select a service and practitioner to see open appointment times.
+                </p>
+              ) : slotGroups.length ? (
+                <div className="grid gap-3 lg:grid-cols-2">
+                  {slotGroups.map(([date, daySlots]) => (
+                    <div key={date} className="rounded-md border border-slate-200 bg-white p-3">
+                      <p className="font-semibold text-ink">{formatDate(date)}</p>
+                      <div className="mt-3 grid grid-cols-3 gap-2 sm:grid-cols-4">
+                        {daySlots.slice(0, 12).map((slot) => {
+                          const active = selectedSlot?.date === slot.date && selectedSlot?.time === slot.time && selectedSlot?.practitioner_id === slot.practitioner_id;
+                          return (
+                            <button
+                              key={`${slot.date}-${slot.time}-${slot.practitioner_id}`}
+                              type="button"
+                              onClick={() => setSelectedSlot(slot)}
+                              className={`inline-flex min-h-10 items-center justify-center rounded-md border px-2 text-sm font-semibold transition ${
+                                active ? "border-skybrand bg-skybrand text-white shadow-sm" : "border-slate-200 bg-slate-50 text-slate-700 hover:border-skybrand hover:bg-blue-50 hover:text-skybrand"
+                              }`}
+                            >
+                              {slot.time}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
                   ))}
-                </select>
-              </label>
-              <label className="grid gap-1 text-sm font-medium text-slate-700">
-                Practitioner
-                <select
-                  name="practitioner_id"
-                  required
-                  className="form-input"
-                  value={selectedPractitioner}
-                  onChange={(event) => setSelectedPractitioner(event.target.value)}
-                >
-                  <option value="">Select practitioner</option>
-                  {practitioners.map((practitioner) => (
-                    <option key={practitioner.id} value={practitioner.id}>
-                      {practitioner.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            </div>
-            <label className="grid gap-1 text-sm font-medium text-slate-700">
-              Available Time
-              <select name="slot" required className="form-input" disabled={!selectedService || !selectedPractitioner}>
-                <option value="">Select time</option>
-                {slots.map((slot) => (
-                  <option key={`${slot.date}-${slot.time}-${slot.practitioner_id}`} value={`${slot.date}|${slot.time}`}>
-                    {slot.date} at {slot.time}
-                  </option>
-                ))}
-              </select>
-            </label>
+                </div>
+              ) : (
+                <p className="rounded-md border border-dashed border-slate-300 bg-slate-50 p-4 text-sm text-slate-500">
+                  No open slots for this selection. Try another practitioner or service.
+                </p>
+              )}
+              {selectedSlot ? (
+                <div className="flex flex-col gap-2 rounded-md border border-skybrand/30 bg-blue-50 p-3 text-sm text-slate-700 sm:flex-row sm:items-center sm:justify-between">
+                  <span className="inline-flex items-center gap-2">
+                    <Clock size={17} className="text-skybrand" />
+                    {formatDate(selectedSlot.date)} at {selectedSlot.time} with {selectedSlot.practitioner_name}
+                  </span>
+                  {selectedServiceRecord ? <span className="font-semibold text-skybrand">{selectedServiceRecord.duration_minutes} min</span> : null}
+                </div>
+              ) : null}
+            </section>
 
             <div className="rounded-md border border-slate-200 bg-slate-50 p-2">
               <div className="grid grid-cols-2 gap-2 text-sm font-semibold">

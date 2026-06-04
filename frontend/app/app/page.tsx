@@ -643,9 +643,23 @@ function RecordList(props: { empty: string; rows: Array<{ title: string; meta: s
 }
 
 function ScheduleBoard({ appointments }: { appointments: Appointment[] }) {
-  const hours = ["8 AM", "9 AM", "10 AM", "11 AM", "12 PM", "1 PM", "2 PM", "3 PM", "4 PM", "5 PM"];
-  const days = ["Mon", "Tue", "Wed", "Thu", "Fri"];
-  const scheduled = appointments.slice(0, 8);
+  const hours = Array.from({ length: 10 }, (_, index) => index + 8);
+  const dates = Array.from({ length: 5 }, (_, index) => {
+    const date = new Date();
+    date.setDate(date.getDate() + index);
+    return date.toISOString().slice(0, 10);
+  });
+  const startMinutes = 8 * 60;
+  const rowHeight = 80;
+
+  function minutesFromTime(time: string) {
+    const [hour, minute] = time.slice(0, 5).split(":").map(Number);
+    return hour * 60 + minute;
+  }
+
+  function formatDay(value: string) {
+    return new Intl.DateTimeFormat("en-CA", { weekday: "short", month: "short", day: "numeric" }).format(new Date(`${value}T12:00:00`));
+  }
 
   if (!appointments.length) {
     return (
@@ -663,8 +677,8 @@ function ScheduleBoard({ appointments }: { appointments: Appointment[] }) {
           <h3 className="font-semibold text-ink">Clinic Calendar</h3>
         </div>
         <div className="inline-flex rounded-md border border-slate-200 bg-white p-1 text-xs font-semibold text-slate-600">
-          <span className="rounded bg-skybrand px-3 py-1.5 text-white">Day</span>
-          <span className="px-3 py-1.5">Week</span>
+          <span className="rounded bg-skybrand px-3 py-1.5 text-white">5 days</span>
+          <span className="px-3 py-1.5">Open slots</span>
           <span className="px-3 py-1.5">List</span>
         </div>
       </div>
@@ -672,9 +686,9 @@ function ScheduleBoard({ appointments }: { appointments: Appointment[] }) {
       <div className="hidden min-w-[720px] sm:block">
         <div className="grid grid-cols-[72px_repeat(5,1fr)] border-b border-slate-200 bg-white text-sm">
           <div className="border-r border-slate-200 p-3 text-slate-400">Time</div>
-          {days.map((day) => (
+          {dates.map((day) => (
             <div key={day} className="border-r border-slate-200 p-3 font-semibold text-ink last:border-r-0">
-              {day}
+              {formatDay(day)}
             </div>
           ))}
         </div>
@@ -682,28 +696,33 @@ function ScheduleBoard({ appointments }: { appointments: Appointment[] }) {
           <div className="border-r border-slate-200">
             {hours.map((hour) => (
               <div key={hour} className="h-20 border-b border-slate-100 px-3 py-2 text-xs text-slate-400">
-                {hour}
+                {hour > 12 ? `${hour - 12} PM` : hour === 12 ? "12 PM" : `${hour} AM`}
               </div>
             ))}
           </div>
-          {days.map((day, dayIndex) => (
+          {dates.map((day) => (
             <div key={day} className="relative border-r border-slate-200 last:border-r-0">
               {hours.map((hour) => (
                 <div key={hour} className="h-20 border-b border-slate-100" />
               ))}
-              {scheduled
-                .filter((_, index) => index % days.length === dayIndex)
-                .map((appointment, index) => (
-                  <div
-                    key={appointment.id}
-                    className="absolute left-2 right-2 rounded-md border border-skybrand/30 bg-blue-50 p-2 text-xs shadow-sm"
-                    style={{ top: `${48 + index * 126}px` }}
-                  >
-                  <p className="font-semibold text-ink">{appointment.time.slice(0, 5)} {appointment.client_name}</p>
-                    <p className="mt-1 text-slate-600">{appointment.service}{appointment.practitioner_name ? ` - ${appointment.practitioner_name}` : ""}</p>
-                    <span className="mt-2 inline-block rounded bg-white px-2 py-1 font-semibold text-skybrand">{appointment.status}</span>
-                  </div>
-                ))}
+              {appointments
+                .filter((appointment) => appointment.date === day)
+                .map((appointment) => {
+                  const top = Math.max(0, ((minutesFromTime(appointment.time) - startMinutes) / 60) * rowHeight);
+                  const height = Math.max(48, (appointment.duration_minutes / 60) * rowHeight);
+                  return (
+                    <div
+                      key={appointment.id}
+                      className="absolute left-2 right-2 overflow-hidden rounded-md border border-skybrand/30 bg-blue-50 p-2 text-xs shadow-sm"
+                      style={{ top: `${top}px`, minHeight: `${height}px` }}
+                    >
+                      <p className="font-semibold text-ink">{appointment.time.slice(0, 5)} {appointment.client_name}</p>
+                      <p className="mt-1 text-slate-600">{appointment.service}</p>
+                      {appointment.practitioner_name ? <p className="mt-1 text-slate-500">{appointment.practitioner_name}</p> : null}
+                      <span className="mt-2 inline-block rounded bg-white px-2 py-1 font-semibold text-skybrand">{appointment.status}</span>
+                    </div>
+                  );
+                })}
             </div>
           ))}
         </div>
