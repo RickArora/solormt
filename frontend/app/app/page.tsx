@@ -4,11 +4,13 @@ import { FormEvent, ReactNode, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import RecaptchaField from "@/components/RecaptchaField";
 import CalendarTab from "@/components/calendar";
+import ClientProfilePanel from "@/components/client-profile";
 import {
   api,
   Appointment,
   Client,
   ClientPackage,
+  ClientProfile,
   Clinic,
   InsuranceClaim,
   IntakeResponse,
@@ -74,6 +76,9 @@ export default function AppPage() {
   const [payments, setPayments] = useState<Payment[]>([]);
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(false);
+  const [profile, setProfile] = useState<ClientProfile | null>(null);
+  const [profileOpen, setProfileOpen] = useState(false);
+  const [profileLoading, setProfileLoading] = useState(false);
   const [waitlist, setWaitlist] = useState<WaitlistEntry[]>([]);
   const [packages, setPackages] = useState<Package[]>([]);
   const [clientPackages, setClientPackages] = useState<ClientPackage[]>([]);
@@ -163,6 +168,35 @@ export default function AppPage() {
     window.localStorage.removeItem("solormt_access");
     window.localStorage.removeItem("solormt_refresh");
     setToken(null);
+  }
+
+  async function toggleServiceIntake(serviceId: number, requires: boolean) {
+    if (!token) return;
+    setLoading(true);
+    try {
+      await api.updateService(token, serviceId, { requires_intake: requires });
+      setMessage(requires ? "Intake form will be auto-sent for this service." : "Auto-send intake disabled for this service.");
+      await refresh();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Could not update service.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function openProfile(clientId: number) {
+    if (!token) return;
+    setProfileOpen(true);
+    setProfileLoading(true);
+    setProfile(null);
+    try {
+      setProfile(await api.clientProfile(token, clientId));
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Could not load client profile.");
+      setProfileOpen(false);
+    } finally {
+      setProfileLoading(false);
+    }
   }
 
   async function submitClient(event: FormEvent<HTMLFormElement>) {
@@ -672,7 +706,27 @@ export default function AppPage() {
           <CrudLayout
             title="Clients"
             form={<ClientForm onSubmit={submitClient} />}
-            list={<RecordList empty="No clients yet." rows={clients.map((c) => ({ title: `${c.first_name} ${c.last_name}`, meta: `${c.email || "No email"} ${c.phone || ""}` }))} />}
+            list={
+              clients.length ? (
+                <div className="grid gap-3">
+                  {clients.map((c) => (
+                    <button
+                      key={c.id}
+                      onClick={() => openProfile(c.id)}
+                      className="flex items-center justify-between gap-3 rounded-md border border-slate-200 bg-white p-3 text-left transition hover:border-skybrand hover:shadow-sm"
+                    >
+                      <div className="min-w-0">
+                        <p className="font-semibold text-ink">{c.first_name} {c.last_name}</p>
+                        <p className="mt-1 truncate text-sm text-slate-500">{c.email || "No email"} {c.phone || ""}</p>
+                      </div>
+                      <span className="shrink-0 text-xs font-semibold text-skybrand">View profile →</span>
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <p className="rounded-md border border-dashed border-slate-300 bg-slate-50 p-4 text-sm text-slate-500">No clients yet.</p>
+              )
+            }
           />
         ) : null}
 
@@ -965,18 +1019,40 @@ export default function AppPage() {
               <ClinicSettingsForm clinic={clinic} onSubmit={submitClinicSettings} />
             </Panel>
             <Panel title="Services">
-              <RecordList
-                empty="No services configured."
-                rows={services.map((service) => ({
-                  title: service.name,
-                  meta: `${service.duration_minutes} minutes - ${dollars(service.price_cents)}${service.description ? ` - ${service.description}` : ""}`,
-                  tag: service.is_active ? "active" : "hidden",
-                }))}
-              />
+              {services.length ? (
+                <div className="grid gap-3">
+                  {services.map((service) => (
+                    <div key={service.id} className="rounded-md border border-slate-200 bg-white p-3">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="font-semibold text-ink">{service.name}</p>
+                          <p className="mt-1 text-sm text-slate-500">{service.duration_minutes} min · {dollars(service.price_cents)}</p>
+                        </div>
+                        <span className="shrink-0 rounded-md bg-blue-50 px-2 py-1 text-xs font-semibold text-skybrand">{service.is_active ? "active" : "hidden"}</span>
+                      </div>
+                      <label className="mt-3 flex items-center gap-2 border-t border-slate-100 pt-3 text-sm text-slate-700">
+                        <input
+                          type="checkbox"
+                          checked={service.requires_intake}
+                          onChange={(e) => toggleServiceIntake(service.id, e.target.checked)}
+                          className="size-4"
+                        />
+                        Auto-send intake &amp; consent form when this service is booked
+                      </label>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="rounded-md border border-dashed border-slate-300 bg-slate-50 p-4 text-sm text-slate-500">No services configured.</p>
+              )}
             </Panel>
           </div>
         ) : null}
       </div>
+
+      {profileOpen ? (
+        <ClientProfilePanel profile={profile} loading={profileLoading} onClose={() => setProfileOpen(false)} />
+      ) : null}
     </main>
   );
 }

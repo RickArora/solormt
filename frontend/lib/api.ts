@@ -129,6 +129,7 @@ export type Service = {
   price_cents: number;
   price: string;
   is_active: boolean;
+  requires_intake: boolean;
 };
 
 export type PractitionerAvailability = {
@@ -166,8 +167,45 @@ export type IntakeResponse = {
   status: "sent" | "completed" | "needs_review";
   answers: Record<string, unknown>;
   sent_at: string | null;
+  reminder_sent_at: string | null;
   completed_at: string | null;
   created_at: string;
+};
+
+export type ReminderLog = {
+  id: number;
+  kind: string;
+  kind_label: string;
+  channel: string;
+  status: string;
+  scheduled_for: string;
+  appointment_date: string | null;
+};
+
+export type ClientProfile = {
+  client: Client & {
+    insurance_company?: string;
+    insurance_plan_number?: string;
+    insurance_member_id?: string;
+    insurance_group_number?: string;
+    insurance_relationship?: string;
+  };
+  appointments: Appointment[];
+  reminders: ReminderLog[];
+  intake_responses: IntakeResponse[];
+  payments: Payment[];
+  soap_notes: SoapNote[];
+};
+
+export type PublicIntake = {
+  clinic_name: string;
+  client_first_name: string;
+  status: string;
+  completed: boolean;
+  health_history: string;
+  consent_accepted: boolean;
+  appointment_date: string | null;
+  appointment_time: string | null;
 };
 
 export type Clinic = {
@@ -288,6 +326,15 @@ export const api = {
   clients: (token: string) => request<Client[]>("/clients/", {}, token),
   createClient: (token: string, payload: Partial<Client>) =>
     request<Client>("/clients/", { method: "POST", body: JSON.stringify(payload) }, token),
+  clientProfile: (token: string, id: number) =>
+    request<ClientProfile>(`/clients/${id}/profile/`, {}, token),
+  updateService: (token: string, id: number, payload: { requires_intake?: boolean; is_active?: boolean }) =>
+    request<Service>(`/services/${id}/`, { method: "PATCH", body: JSON.stringify(payload) }, token),
+  // Public intake form (tokenized, no auth)
+  publicIntake: (tokenValue: string) =>
+    request<PublicIntake>(`/public/intake/${tokenValue}/`),
+  submitPublicIntake: (tokenValue: string, payload: { health_history: string; consent_accepted: boolean }) =>
+    request<{ status: string; message: string }>(`/public/intake/${tokenValue}/`, { method: "POST", body: JSON.stringify(payload) }),
   appointments: (token: string) => request<Appointment[]>("/appointments/", {}, token),
   createAppointment: (token: string, payload: Partial<Appointment>) =>
     request<Appointment>("/appointments/", { method: "POST", body: JSON.stringify(payload) }, token),

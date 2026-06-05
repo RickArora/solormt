@@ -2,9 +2,43 @@ from datetime import datetime, time, timedelta
 
 from django.utils import timezone
 
+from django.conf import settings
 from django.core.mail import send_mail
 
 from .models import AppointmentReminder, Clinic, ClinicMembership, IntakeTemplate, Practitioner, PractitionerAvailability, Service, WaitlistEntry
+
+
+def send_intake_request(intake, is_reminder: bool = False) -> bool:
+    """
+    Email a client a tokenized link to complete their intake/consent form.
+    Returns True if the email was accepted by the backend.
+    """
+    client = intake.client
+    clinic = intake.clinic
+    if not client.email:
+        return False
+
+    link = f"{settings.FRONTEND_BASE_URL}/intake/{intake.token}"
+    from_email = clinic.reminder_email or settings.DEFAULT_FROM_EMAIL
+    if is_reminder:
+        subject = f"Reminder: please complete your intake form – {clinic.name}"
+        opener = "This is a friendly reminder to complete your health history and consent form before your appointment."
+    else:
+        subject = f"Complete your intake form – {clinic.name}"
+        opener = "Thanks for booking. Please complete your health history and consent form before your visit."
+
+    body = (
+        f"Hi {client.first_name},\n\n"
+        f"{opener}\n\n"
+        f"Complete it here: {link}\n\n"
+        f"It only takes a couple of minutes and can be done on any device.\n\n"
+        f"{clinic.name}"
+    )
+    try:
+        send_mail(subject, body, from_email, [client.email], fail_silently=False)
+        return True
+    except Exception:  # noqa: BLE001
+        return False
 
 
 def get_default_clinic(user):
@@ -25,7 +59,7 @@ def ensure_clinic_defaults(clinic):
         Service.objects.bulk_create(
             [
                 Service(clinic=clinic, name="Massage Therapy", duration_minutes=60, price_cents=12000),
-                Service(clinic=clinic, name="Initial Assessment", duration_minutes=75, price_cents=15000),
+                Service(clinic=clinic, name="Initial Assessment", duration_minutes=75, price_cents=15000, requires_intake=True),
                 Service(clinic=clinic, name="Follow-up Treatment", duration_minutes=45, price_cents=9500),
             ]
         )

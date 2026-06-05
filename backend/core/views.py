@@ -19,7 +19,7 @@ from payments.models import InsuranceClaim, Payment
 from appointments.serializers import AppointmentSerializer
 from payments.serializers import InsuranceClaimSerializer, PaymentSerializer
 from .models import (
-    Clinic, ClinicMembership, ClientPackage, IntakeResponse, IntakeTemplate,
+    AppointmentReminder, Clinic, ClinicMembership, ClientPackage, IntakeResponse, IntakeTemplate,
     Package, Practitioner, PractitionerAvailability, Service, UserProfile, WaitlistEntry,
 )
 from .serializers import (
@@ -38,7 +38,7 @@ from .serializers import (
     UserProfileSerializer,
     WaitlistEntrySerializer,
 )
-from .utils import ensure_clinic_defaults, get_default_clinic, notify_waitlist, queue_appointment_reminders
+from .utils import ensure_clinic_defaults, get_default_clinic, notify_waitlist, queue_appointment_reminders, send_intake_request
 
 User = get_user_model()
 
@@ -92,6 +92,16 @@ class ServiceListView(APIView):
         clinic = get_default_clinic(request.user)
         ensure_clinic_defaults(clinic)
         return Response(ServiceSerializer(clinic.services.all(), many=True).data)
+
+
+class ServiceDetailView(APIView):
+    def patch(self, request, service_id):
+        clinic = get_default_clinic(request.user)
+        service = get_object_or_404(Service, id=service_id, clinic=clinic)
+        serializer = ServiceSerializer(service, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(serializer.data)
 
 
 class PractitionerListView(APIView):
@@ -307,6 +317,7 @@ class PublicBookingView(APIView):
             notes="Booked online by client.",
         )
         template = IntakeTemplate.objects.filter(clinic=clinic, is_active=True).first()
+        provided_inline = bool(data.get("health_history"))
         intake = IntakeResponse.objects.create(
             clinic=clinic,
             template=template,
@@ -314,11 +325,15 @@ class PublicBookingView(APIView):
             appointment=appointment,
             health_history=data.get("health_history", ""),
             consent_accepted=data["consent_accepted"],
-            status=IntakeResponse.Status.COMPLETED if data.get("health_history") else IntakeResponse.Status.SENT,
+            status=IntakeResponse.Status.COMPLETED if provided_inline else IntakeResponse.Status.SENT,
             sent_at=timezone.now(),
-            completed_at=timezone.now() if data.get("health_history") else None,
+            completed_at=timezone.now() if provided_inline else None,
             answers={"source": "online_booking", "delivery": "client_portal"},
         )
+        # Service-driven auto-send: if the booked service requires an intake form
+        # and the client didn't complete it inline, email them a tokenized link.
+        if not provided_inline and service.requires_intake:
+            send_intake_request(intake)
         queue_appointment_reminders(appointment)
         payment = None
         checkout_url = ""
@@ -765,3 +780,77 @@ def _submit_to_telus(claim: InsuranceClaim) -> dict:
         "status": "submitted",
         "message": "Claim submitted to TELUS eClaims. Awaiting insurer response (typically 30–60 seconds for real-time adjudication).",
     }
+
+
+# ── Public intake form completion (tokenized, no login) ───────────────────────
+
+class PublicIntakeView(APIView):
+    permission_classes = [AllowAny]
+
+    def get(self, request, token):
+        intake = get_object_or_404(IntakeResponse.objects.select_related("clinic", "client", "appointment"), token=token)
+        return Response({
+            "clinic_name": intake.clinic.name,
+            "client_first_name": intake.client.first_name,
+            "status": intake.status,
+            "completed": intake.status == IntakeResponse.Status.COMPLETED,
+            "health_history": intake.health_history,
+            "consent_accepted": intake.consent_accepted,
+            "appointment_date": intake.appointment.date.isoformat() if intake.appointment else None,
+            "appointment_time": intake.appointment.time.strftime("%H:%M") if intake.appointment else None,
+        })
+
+    def post(self, request, token):
+        intake = get_object_or_404(IntakeResponse, token=token)
+        health_history = str(request.data.get("health_history", "")).strip()
+        consent = bool(request.data.get("consent_accepted"))
+        if not consent:
+            return Response({"detail": "Consent is required to complete the form."}, status=status.HTTP_400_BAD_REQUEST)
+        intake.health_history = health_history
+        intake.consent_accepted = consent
+        intake.status = IntakeResponse.Status.COMPLETED
+        intake.completed_at = timezone.now()
+        intake.save(update_fields=["health_history", "consent_accepted", "status", "completed_at"])
+        return Response({"status": "completed", "message": "Thank you — your intake form is complete."})
+
+
+# ── Client profile (Jane-style communication log) ─────────────────────────────
+
+class ClientProfileView(APIView):
+    def get(self, request, client_id):
+        from soap_notes.models import SoapNote
+        from soap_notes.serializers import SoapNoteSerializer
+
+        clinic = get_default_clinic(request.user)
+        client = get_object_or_404(Client, pk=client_id, clinic=clinic, owner=request.user)
+
+        appointments = Appointment.objects.filter(clinic=clinic, client=client).select_related("practitioner")
+        reminders = (
+            AppointmentReminder.objects.filter(clinic=clinic, appointment__client=client)
+            .select_related("appointment")
+            .order_by("-scheduled_for")
+        )
+        intakes = IntakeResponse.objects.filter(clinic=clinic, client=client).order_by("-created_at")
+        payments = Payment.objects.filter(clinic=clinic, client=client)
+        soap_notes = SoapNote.objects.filter(clinic=clinic, client=client) if hasattr(SoapNote, "clinic") else SoapNote.objects.filter(client=client)
+
+        from clients.serializers import ClientSerializer
+        return Response({
+            "client": ClientSerializer(client).data,
+            "appointments": AppointmentSerializer(appointments, many=True, context={"request": request}).data,
+            "reminders": [
+                {
+                    "id": r.id,
+                    "kind": r.kind,
+                    "kind_label": r.get_kind_display(),
+                    "channel": r.channel,
+                    "status": r.status,
+                    "scheduled_for": r.scheduled_for,
+                    "appointment_date": r.appointment.date.isoformat() if r.appointment else None,
+                }
+                for r in reminders
+            ],
+            "intake_responses": IntakeResponseSerializer(intakes, many=True).data,
+            "payments": PaymentSerializer(payments, many=True, context={"request": request}).data,
+            "soap_notes": SoapNoteSerializer(soap_notes, many=True, context={"request": request}).data,
+        })

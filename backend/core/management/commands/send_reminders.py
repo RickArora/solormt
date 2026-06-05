@@ -48,9 +48,43 @@ class Command(BaseCommand):
             else:
                 failed += 1
 
+        intake_chased = self._chase_incomplete_intakes(now)
+
         self.stdout.write(
-            self.style.SUCCESS(f"Reminders processed: {sent} sent, {failed} failed.")
+            self.style.SUCCESS(
+                f"Reminders processed: {sent} sent, {failed} failed. Intake forms chased: {intake_chased}."
+            )
         )
+
+    def _chase_incomplete_intakes(self, now) -> int:
+        """
+        Send a one-time '24h before, form still incomplete' reminder for intake
+        forms tied to an upcoming appointment. Deduped via reminder_sent_at.
+        """
+        from datetime import datetime, timedelta
+
+        from core.models import IntakeResponse
+        from core.utils import send_intake_request
+
+        window_end = now + timedelta(hours=24)
+        candidates = (
+            IntakeResponse.objects.select_related("client", "clinic", "appointment")
+            .filter(status=IntakeResponse.Status.SENT, reminder_sent_at__isnull=True, appointment__isnull=False)
+        )
+        chased = 0
+        for intake in candidates:
+            appt = intake.appointment
+            try:
+                start = timezone.make_aware(datetime.combine(appt.date, appt.time))
+            except Exception:  # noqa: BLE001
+                continue
+            # Only chase if the appointment is within the next 24h and still in the future.
+            if now < start <= window_end:
+                if send_intake_request(intake, is_reminder=True):
+                    intake.reminder_sent_at = now
+                    intake.save(update_fields=["reminder_sent_at"])
+                    chased += 1
+        return chased
 
     def _send_email(self, reminder, appointment, client, clinic) -> bool:
         if not client.email:

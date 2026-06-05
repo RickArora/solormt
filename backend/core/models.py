@@ -1,3 +1,5 @@
+import uuid
+
 from django.conf import settings
 from django.db import models
 from django.utils.text import slugify
@@ -84,6 +86,7 @@ class Service(models.Model):
     duration_minutes = models.PositiveIntegerField(default=60)
     price_cents = models.PositiveIntegerField(default=12000)
     is_active = models.BooleanField(default=True)
+    requires_intake = models.BooleanField(default=False, help_text="Auto-send an intake/consent form when this service is booked")
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -177,7 +180,9 @@ class IntakeResponse(models.Model):
     consent_accepted = models.BooleanField(default=False)
     status = models.CharField(max_length=30, choices=Status.choices, default=Status.SENT)
     answers = models.JSONField(default=dict, blank=True)
+    token = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
     sent_at = models.DateTimeField(null=True, blank=True)
+    reminder_sent_at = models.DateTimeField(null=True, blank=True)
     completed_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 

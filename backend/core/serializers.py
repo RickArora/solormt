@@ -77,7 +77,7 @@ class ServiceSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Service
-        fields = ["id", "name", "description", "duration_minutes", "price_cents", "price", "is_active"]
+        fields = ["id", "name", "description", "duration_minutes", "price_cents", "price", "is_active", "requires_intake"]
 
     def get_price(self, obj: Service) -> str:
         return f"{obj.price_cents / 100:.2f}"
@@ -154,10 +154,11 @@ class IntakeResponseSerializer(serializers.ModelSerializer):
             "status",
             "answers",
             "sent_at",
+            "reminder_sent_at",
             "completed_at",
             "created_at",
         ]
-        read_only_fields = ["id", "client_name", "sent_at", "completed_at", "created_at"]
+        read_only_fields = ["id", "client_name", "sent_at", "reminder_sent_at", "completed_at", "created_at"]
 
     def get_client_name(self, obj: IntakeResponse) -> str:
         return str(obj.client)

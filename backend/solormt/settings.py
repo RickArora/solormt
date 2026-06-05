@@ -111,6 +111,29 @@ STRIPE_SECRET_KEY = os.getenv("STRIPE_SECRET_KEY", "")
 STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET", "")
 FRONTEND_SUCCESS_URL = os.getenv("FRONTEND_SUCCESS_URL", "http://localhost:3000/dashboard?payment=success")
 FRONTEND_CANCEL_URL = os.getenv("FRONTEND_CANCEL_URL", "http://localhost:3000/dashboard?payment=cancelled")
+# Public base URL of the frontend, used to build links inside outgoing emails
+# (e.g. the tokenized intake-form completion link).
+FRONTEND_BASE_URL = os.getenv("FRONTEND_BASE_URL", "http://localhost:3000")
+
+# ── Email (transactional) ─────────────────────────────────────────────────────
+# Set EMAIL_HOST_PASSWORD (and the rest) via .env to enable real sending.
+# Recommended provider: Resend (smtp.resend.com:587, user "resend", password = API key)
+#   or Postmark (smtp.postmarkapp.com:587).
+# IMPORTANT: deliverability requires SPF, DKIM, and DMARC DNS records on your
+# sending domain — see docs/EMAIL_SETUP.md (the DNS TODO checklist).
+EMAIL_HOST = os.getenv("EMAIL_HOST", "smtp.resend.com")
+EMAIL_PORT = int(os.getenv("EMAIL_PORT", "587"))
+EMAIL_HOST_USER = os.getenv("EMAIL_HOST_USER", "resend")
+EMAIL_HOST_PASSWORD = os.getenv("EMAIL_HOST_PASSWORD", "")
+EMAIL_USE_TLS = os.getenv("EMAIL_USE_TLS", "True") == "True"
+DEFAULT_FROM_EMAIL = os.getenv("DEFAULT_FROM_EMAIL", "SoloRMT <noreply@solormt.com>")
+
+# Use real SMTP only when a password is configured; otherwise print to console
+# in development so nothing silently fails.
+if EMAIL_HOST_PASSWORD:
+    EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
+else:
+    EMAIL_BACKEND = "django.core.mail.backends.console.EmailBackend"
 
 RECAPTCHA_SITE_KEY = os.getenv("RECAPTCHA_SITE_KEY", "")
 RECAPTCHA_SECRET_KEY = os.getenv("RECAPTCHA_SECRET_KEY", "")
