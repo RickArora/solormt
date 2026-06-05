@@ -152,6 +152,9 @@ export type Practitioner = {
   services: Service[];
   availability: PractitionerAvailability[];
   is_active: boolean;
+  slot_duration_minutes: number;
+  buffer_minutes: number;
+  slot_duration_options: number[];
 };
 
 export type IntakeResponse = {
@@ -288,6 +291,18 @@ export const api = {
   appointments: (token: string) => request<Appointment[]>("/appointments/", {}, token),
   createAppointment: (token: string, payload: Partial<Appointment>) =>
     request<Appointment>("/appointments/", { method: "POST", body: JSON.stringify(payload) }, token),
+  updateAppointment: (token: string, id: number, payload: Partial<Appointment>) =>
+    request<Appointment>(`/appointments/${id}/`, { method: "PATCH", body: JSON.stringify(payload) }, token),
+  deleteAppointment: (token: string, id: number) =>
+    request<void>(`/appointments/${id}/`, { method: "DELETE" }, token),
+  sendAppointmentReminder: (token: string, id: number) =>
+    request<{ sent: boolean; channel: string; to: string }>(`/appointments/${id}/send-reminder/`, { method: "POST", body: JSON.stringify({}) }, token),
+  updatePractitioner: (token: string, id: number, payload: Partial<Practitioner> & { service_ids?: number[] }) =>
+    request<Practitioner>(`/practitioners/${id}/`, { method: "PATCH", body: JSON.stringify(payload) }, token),
+  practitionerAvailability: (token: string, id: number) =>
+    request<PractitionerAvailability[]>(`/practitioners/${id}/availability/`, {}, token),
+  deletePractitionerAvailability: (token: string, practitionerId: number, availabilityId: number) =>
+    request<void>(`/practitioners/${practitionerId}/availability/${availabilityId}/`, { method: "DELETE" }, token),
   soapNotes: (token: string) => request<SoapNote[]>("/soap-notes/", {}, token),
   createSoapNote: (token: string, payload: Partial<SoapNote>) =>
     request<SoapNote>("/soap-notes/", { method: "POST", body: JSON.stringify(payload) }, token),

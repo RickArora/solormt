@@ -15,3 +15,7 @@ db.sqlite3
 media/
 staticfiles/
 *.tsbuildinfo
+
+# stray venv artifact
+#/
+.claude/launch.json

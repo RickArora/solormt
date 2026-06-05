@@ -103,6 +103,10 @@ class Practitioner(models.Model):
     bio = models.TextField(blank=True)
     services = models.ManyToManyField(Service, related_name="practitioners", blank=True)
     is_active = models.BooleanField(default=True)
+    # Scheduling configuration (per-practitioner)
+    slot_duration_minutes = models.PositiveIntegerField(default=60, help_text="Default appointment slot length")
+    buffer_minutes = models.PositiveIntegerField(default=0, help_text="Break/buffer time inserted after each slot")
+    slot_duration_options = models.JSONField(default=list, blank=True, help_text="Selectable slot lengths, e.g. [30, 60, 90]")
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

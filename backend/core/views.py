@@ -109,7 +109,29 @@ class PractitionerListView(APIView):
         return Response(PractitionerSerializer(practitioner).data, status=status.HTTP_201_CREATED)
 
 
+class PractitionerDetailView(APIView):
+    def patch(self, request, practitioner_id):
+        clinic = get_default_clinic(request.user)
+        practitioner = get_object_or_404(Practitioner, id=practitioner_id, clinic=clinic)
+        serializer = PractitionerSerializer(practitioner, data=request.data, partial=True, context={"clinic": clinic})
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(PractitionerSerializer(practitioner).data)
+
+    def delete(self, request, practitioner_id):
+        clinic = get_default_clinic(request.user)
+        practitioner = get_object_or_404(Practitioner, id=practitioner_id, clinic=clinic)
+        practitioner.is_active = False
+        practitioner.save(update_fields=["is_active"])
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
 class PractitionerAvailabilityView(APIView):
+    def get(self, request, practitioner_id):
+        clinic = get_default_clinic(request.user)
+        practitioner = get_object_or_404(Practitioner, id=practitioner_id, clinic=clinic)
+        return Response(PractitionerAvailabilitySerializer(practitioner.availability.all(), many=True).data)
+
     def post(self, request, practitioner_id):
         clinic = get_default_clinic(request.user)
         practitioner = get_object_or_404(Practitioner, id=practitioner_id, clinic=clinic)
@@ -117,6 +139,15 @@ class PractitionerAvailabilityView(APIView):
         serializer.is_valid(raise_exception=True)
         availability = serializer.save(practitioner=practitioner)
         return Response(PractitionerAvailabilitySerializer(availability).data, status=status.HTTP_201_CREATED)
+
+
+class PractitionerAvailabilityDetailView(APIView):
+    def delete(self, request, practitioner_id, availability_id):
+        clinic = get_default_clinic(request.user)
+        practitioner = get_object_or_404(Practitioner, id=practitioner_id, clinic=clinic)
+        availability = get_object_or_404(PractitionerAvailability, id=availability_id, practitioner=practitioner)
+        availability.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 class IntakeResponseListView(APIView):
@@ -153,19 +184,32 @@ class PublicAvailabilityView(APIView):
         if practitioner_id:
             booked = booked.filter(practitioner_id=practitioner_id)
         booked_keys = {(item.date.isoformat(), item.time.strftime("%H:%M"), item.practitioner_id) for item in booked}
+
+        # Horizon is configurable so the calendar can look far into the future.
+        try:
+            horizon_days = min(370, max(1, int(request.query_params.get("days", 60))))
+        except (TypeError, ValueError):
+            horizon_days = 60
+        try:
+            start_offset = max(0, int(request.query_params.get("start_offset", 0)))
+        except (TypeError, ValueError):
+            start_offset = 0
+
         slots = []
         now = timezone.localdate()
         current_local_time = timezone.localtime().time()
-        for day_offset in range(21):
+        for day_offset in range(start_offset, start_offset + horizon_days):
             slot_date = now + timedelta(days=day_offset)
             for practitioner in practitioners:
+                step = max(5, practitioner.slot_duration_minutes or 60)
+                buffer_minutes = practitioner.buffer_minutes or 0
                 for window in practitioner.availability.filter(weekday=slot_date.weekday(), is_active=True):
                     current = datetime.combine(slot_date, window.start_time)
                     end = datetime.combine(slot_date, window.end_time)
-                    while current < end:
+                    while current + timedelta(minutes=step) <= end:
                         time_value = current.time().strftime("%H:%M")
                         if slot_date == now and current.time() <= current_local_time:
-                            current += timedelta(minutes=30)
+                            current += timedelta(minutes=step + buffer_minutes)
                             continue
                         if (slot_date.isoformat(), time_value, practitioner.id) not in booked_keys:
                             slots.append(
@@ -174,14 +218,15 @@ class PublicAvailabilityView(APIView):
                                     "time": time_value,
                                     "practitioner_id": practitioner.id,
                                     "practitioner_name": practitioner.name,
+                                    "duration_minutes": step,
                                 }
                             )
-                        current += timedelta(minutes=30)
+                        current += timedelta(minutes=step + buffer_minutes)
         return Response(
             {
                 "clinic": ClinicSerializer(clinic).data,
                 "practitioners": PractitionerSerializer(practitioners, many=True).data,
-                "available_slots": slots[:120],
+                "available_slots": slots,
                 "available_days": sorted({slot["date"] for slot in slots}),
                 "available_times": sorted({slot["time"] for slot in slots}),
                 "booked": list(booked.values("date", "time", "duration_minutes", "status", "practitioner_id")),
@@ -518,6 +563,53 @@ class MarkNoShowView(APIView):
             "no_show_fee_created": payment is not None,
             "fee_cents": clinic.noshow_fee_cents if payment else 0,
         })
+
+
+# ── Send a reminder on demand ─────────────────────────────────────────────────
+
+class SendAppointmentReminderView(APIView):
+    def post(self, request, appointment_id):
+        from django.core.mail import send_mail
+        from .models import AppointmentReminder
+
+        user = request.user
+        clinic = get_default_clinic(user)
+        appointment = get_object_or_404(Appointment, pk=appointment_id, clinic=clinic, owner=user)
+        client = appointment.client
+
+        if not client.email:
+            return Response({"detail": "Client has no email on file."}, status=status.HTTP_400_BAD_REQUEST)
+
+        practitioner = appointment.practitioner.name if appointment.practitioner else "your practitioner"
+        subject = f"Appointment reminder – {clinic.name}"
+        body = (
+            f"Hi {client.first_name},\n\n"
+            f"This is a reminder of your {appointment.service} appointment at {clinic.name}.\n\n"
+            f"Date: {appointment.date} at {appointment.time.strftime('%H:%M')}\n"
+            f"Practitioner: {practitioner}\n\n"
+            f"To cancel or reschedule, visit your client portal.\n\n{clinic.name}"
+        )
+        from_email = clinic.reminder_email or "reminders@solormt.com"
+
+        reminder = AppointmentReminder.objects.create(
+            clinic=clinic,
+            appointment=appointment,
+            kind=AppointmentReminder.Kind.CONFIRMATION,
+            channel=AppointmentReminder.Channel.EMAIL,
+            scheduled_for=timezone.now(),
+            message="Manual reminder sent from dashboard.",
+        )
+        sent = False
+        try:
+            send_mail(subject, body, from_email, [client.email], fail_silently=False)
+            sent = True
+            reminder.status = AppointmentReminder.Status.SENT
+            reminder.save(update_fields=["status"])
+        except Exception as exc:  # noqa: BLE001
+            reminder.message = f"Send failed: {exc}"
+            reminder.save(update_fields=["message"])
+
+        return Response({"sent": sent, "channel": "email", "to": client.email})
 
 
 # ── Packages / Memberships ────────────────────────────────────────────────────

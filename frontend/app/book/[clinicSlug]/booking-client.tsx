@@ -325,10 +325,10 @@ export default function BookingClient({ clinicSlug }: { clinicSlug: string }) {
               </label>
               <label className="grid gap-1 text-sm font-medium text-slate-700">
                 Password
-                <input name="password" type="password" required minLength={12} className="form-input" />
+                <input name="password" type="password" required minLength={8} className="form-input" />
               </label>
             </div>
-            <p className="text-xs text-slate-500">Passwords must be at least 12 characters and cannot be common, numeric-only, or too similar to your account info.</p>
+            <p className="text-xs text-slate-500">Passwords must be at least 8 characters and cannot be common, numeric-only, or too similar to your account info.</p>
             <label className="grid gap-1 text-sm font-medium text-slate-700">
               Phone
               <input name="phone" className="form-input" />

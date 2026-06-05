@@ -42,6 +42,9 @@ def ensure_clinic_defaults(clinic):
             last_name="Practitioner",
             display_name="Primary Practitioner",
             email=clinic.public_email,
+            slot_duration_minutes=60,
+            buffer_minutes=0,
+            slot_duration_options=[30, 60, 90],
         )
         practitioner.services.set(clinic.services.all())
         PractitionerAvailability.objects.bulk_create(

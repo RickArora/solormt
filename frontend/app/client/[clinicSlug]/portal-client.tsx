@@ -120,9 +120,9 @@ export default function ClientPortal({ clinicSlug }: { clinicSlug: string }) {
               </div>
             ) : null}
             <Field name="email" label="Email" type="email" required />
-            <Field name="password" label="Password" type="password" required minLength={12} />
+            <Field name="password" label="Password" type="password" required minLength={8} />
             <RecaptchaField action="client-portal-auth" />
-            <p className="text-xs text-slate-500">Use at least 12 characters. Common, numeric-only, or easily guessed passwords are rejected.</p>
+            <p className="text-xs text-slate-500">Use at least 8 characters. Common, numeric-only, or easily guessed passwords are rejected.</p>
             <button className="primary-button">{mode === "login" ? "Login" : "Create Portal Account"}</button>
           </form>
           {message ? <p className="mt-4 rounded-md border border-slate-200 bg-slate-50 p-3 text-sm text-slate-600">{message}</p> : null}

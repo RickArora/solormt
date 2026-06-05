@@ -3,6 +3,7 @@
 import { FormEvent, ReactNode, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import RecaptchaField from "@/components/RecaptchaField";
+import CalendarTab from "@/components/calendar";
 import {
   api,
   Appointment,
@@ -21,8 +22,10 @@ import {
 } from "@/lib/api";
 import {
   AlertTriangle,
+  CalendarDays,
   CalendarPlus,
   ClipboardList,
+  Clock,
   CreditCard,
   FileText,
   ListOrdered,
@@ -32,11 +35,12 @@ import {
   RefreshCcw,
   ShieldCheck,
   Stethoscope,
+  Trash2,
   UserPlus,
 } from "lucide-react";
 
 type Tab = "overview" | "clients" | "appointments" | "soap" | "payments";
-type AdminTab = Tab | "team" | "intake" | "waitlist" | "packages" | "claims" | "settings";
+type AdminTab = Tab | "team" | "schedule" | "intake" | "waitlist" | "packages" | "claims" | "settings";
 
 const emptyMetrics: Metrics = {
   total_clients: 0,
@@ -58,7 +62,7 @@ function today() {
 
 export default function AppPage() {
   const [token, setToken] = useState<string | null>(null);
-  const [tab, setTab] = useState<AdminTab>("overview");
+  const [tab, setTab] = useState<AdminTab>("appointments");
   const [metrics, setMetrics] = useState<Metrics>(emptyMetrics);
   const [clinic, setClinic] = useState<Clinic | null>(null);
   const [services, setServices] = useState<Service[]>([]);
@@ -313,6 +317,34 @@ export default function AppPage() {
     }
   }
 
+  async function saveScheduleSettings(practitionerId: number, payload: { slot_duration_minutes: number; buffer_minutes: number; slot_duration_options: number[] }) {
+    if (!token) return;
+    setLoading(true);
+    try {
+      await api.updatePractitioner(token, practitionerId, payload);
+      setMessage("Schedule settings saved.");
+      await refresh();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Could not save schedule settings.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function deleteAvailabilityBlock(practitionerId: number, availabilityId: number) {
+    if (!token) return;
+    setLoading(true);
+    try {
+      await api.deletePractitionerAvailability(token, practitionerId, availabilityId);
+      setMessage("Availability removed.");
+      await refresh();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Could not remove availability.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
   async function submitWaitlist(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!token) return;
@@ -490,8 +522,9 @@ export default function AppPage() {
     () => [
       { id: "overview" as Tab, label: "Overview", icon: Stethoscope },
       { id: "clients" as Tab, label: "Clients", icon: UserPlus },
-      { id: "appointments" as Tab, label: "Appointments", icon: CalendarPlus },
+      { id: "appointments" as Tab, label: "Calendar", icon: CalendarDays },
       { id: "team" as AdminTab, label: "Team", icon: UserPlus },
+      { id: "schedule" as AdminTab, label: "Schedule", icon: Clock },
       { id: "soap" as Tab, label: "SOAP", icon: ClipboardList },
       { id: "payments" as Tab, label: "Payments", icon: CreditCard },
       { id: "waitlist" as AdminTab, label: "Waitlist", icon: ListOrdered },
@@ -644,10 +677,32 @@ export default function AppPage() {
         ) : null}
 
         {tab === "appointments" ? (
-          <CrudLayout
-            title="Appointments"
-            form={<AppointmentForm clients={clients} practitioners={practitioners} onSubmit={submitAppointment} />}
-            list={<ScheduleBoard appointments={appointments} />}
+          <CalendarTab
+            appointments={appointments}
+            clients={clients}
+            practitioners={practitioners}
+            services={services}
+            intakeResponses={intakeResponses}
+            setMessage={setMessage}
+            onCreate={async (payload) => {
+              if (!token) return;
+              await api.createAppointment(token, payload);
+              await refresh();
+            }}
+            onUpdate={async (id, payload) => {
+              if (!token) return;
+              await api.updateAppointment(token, id, payload);
+              await refresh();
+            }}
+            onDelete={async (id) => {
+              if (!token) return;
+              await api.deleteAppointment(token, id);
+              await refresh();
+            }}
+            onSendReminder={async (id) => {
+              if (!token) return { sent: false, to: "" };
+              return api.sendAppointmentReminder(token, id);
+            }}
           />
         ) : null}
 
@@ -672,6 +727,15 @@ export default function AppPage() {
               </Panel>
             </div>
           </div>
+        ) : null}
+
+        {tab === "schedule" ? (
+          <ScheduleSettings
+            practitioners={practitioners}
+            onSaveSettings={saveScheduleSettings}
+            onAddAvailability={submitAvailability}
+            onDeleteAvailability={deleteAvailabilityBlock}
+          />
         ) : null}
 
         {tab === "soap" ? (
@@ -935,10 +999,10 @@ function AuthCard(props: {
       ) : null}
       <div className="mt-5 grid gap-4">
         <Field name="email" label="Email" type="email" required />
-        <Field name="password" label="Password" type="password" required minLength={12} />
+        <Field name="password" label="Password" type="password" required minLength={8} />
       </div>
       {props.register ? <RecaptchaField action="admin-register" /> : null}
-      {props.register ? <p className="text-xs text-slate-500">Use at least 12 characters. Common, numeric-only, or easily guessed passwords are rejected.</p> : null}
+      {props.register ? <p className="text-xs text-slate-500">Use at least 8 characters. Common, numeric-only, or easily guessed passwords are rejected.</p> : null}
       <button className="primary-button mt-5 w-full">
         {props.button}
       </button>
@@ -1334,6 +1398,119 @@ function AvailabilityForm({ practitioners, onSubmit }: { practitioners: Practiti
       </div>
       <SubmitButton>Save Availability</SubmitButton>
     </form>
+  );
+}
+
+const WEEKDAY_LABELS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+const SLOT_OPTION_CHOICES = [15, 30, 45, 60, 75, 90, 120];
+
+function ScheduleSettings({
+  practitioners,
+  onSaveSettings,
+  onAddAvailability,
+  onDeleteAvailability,
+}: {
+  practitioners: Practitioner[];
+  onSaveSettings: (id: number, payload: { slot_duration_minutes: number; buffer_minutes: number; slot_duration_options: number[] }) => void;
+  onAddAvailability: (event: FormEvent<HTMLFormElement>) => void;
+  onDeleteAvailability: (practitionerId: number, availabilityId: number) => void;
+}) {
+  const [selectedId, setSelectedId] = useState<number | "">(practitioners[0]?.id ?? "");
+  const selected = practitioners.find((p) => p.id === selectedId) ?? practitioners[0];
+
+  if (!practitioners.length) {
+    return (
+      <div className="mt-6 rounded-md border border-dashed border-slate-300 bg-slate-50 p-6 text-sm text-slate-500">
+        Add a practitioner in the Team tab first, then configure their schedule here.
+      </div>
+    );
+  }
+
+  function saveSettings(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!selected) return;
+    const form = new FormData(event.currentTarget);
+    const options = SLOT_OPTION_CHOICES.filter((n) => form.get(`opt_${n}`) === "on");
+    onSaveSettings(selected.id, {
+      slot_duration_minutes: Number(form.get("slot_duration_minutes")),
+      buffer_minutes: Number(form.get("buffer_minutes")),
+      slot_duration_options: options.length ? options : [60],
+    });
+  }
+
+  return (
+    <div className="mt-6 grid gap-6">
+      <div className="flex flex-wrap items-center gap-3">
+        <label className="text-sm font-semibold text-ink">Practitioner</label>
+        <select
+          value={selectedId}
+          onChange={(e) => setSelectedId(e.target.value ? Number(e.target.value) : "")}
+          className="form-input max-w-xs"
+        >
+          {practitioners.map((p) => (
+            <option key={p.id} value={p.id}>{p.name}</option>
+          ))}
+        </select>
+      </div>
+
+      {selected ? (
+        <div className="grid gap-6 lg:grid-cols-2">
+          <Panel title="Slot Settings">
+            <form onSubmit={saveSettings} className="grid gap-4" key={selected.id}>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <Field name="slot_duration_minutes" label="Default slot length (min)" type="number" required defaultValue={String(selected.slot_duration_minutes)} />
+                <Field name="buffer_minutes" label="Buffer between slots (min)" type="number" required defaultValue={String(selected.buffer_minutes)} />
+              </div>
+              <div className="grid gap-2">
+                <span className="text-sm font-medium text-slate-700">Bookable slot durations</span>
+                <div className="flex flex-wrap gap-3 rounded-md border border-slate-200 bg-slate-50 p-3">
+                  {SLOT_OPTION_CHOICES.map((n) => (
+                    <label key={n} className="flex items-center gap-2 text-sm text-slate-700">
+                      <input type="checkbox" name={`opt_${n}`} defaultChecked={selected.slot_duration_options?.includes(n)} className="size-4" />
+                      {n}m
+                    </label>
+                  ))}
+                </div>
+              </div>
+              <SubmitButton>Save Slot Settings</SubmitButton>
+            </form>
+          </Panel>
+
+          <div className="grid gap-6">
+            <Panel title="Weekly Availability">
+              {selected.availability?.length ? (
+                <div className="grid gap-2">
+                  {selected.availability.map((block) => (
+                    <div key={block.id} className="flex items-center justify-between gap-3 rounded-md border border-slate-200 bg-white p-3 text-sm">
+                      <span className="font-medium text-ink">{WEEKDAY_LABELS[block.weekday]}</span>
+                      <span className="text-slate-600">{block.start_time.slice(0, 5)} – {block.end_time.slice(0, 5)}</span>
+                      <button onClick={() => onDeleteAvailability(selected.id, block.id)} className="icon-button text-red-600" title="Remove"><Trash2 size={15} /></button>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="rounded-md border border-dashed border-slate-300 bg-slate-50 p-4 text-sm text-slate-500">No availability set. Add a day below.</p>
+              )}
+            </Panel>
+            <Panel title="Add Availability">
+              <form onSubmit={onAddAvailability} className="grid gap-4">
+                <input type="hidden" name="practitioner" value={selected.id} />
+                <Select name="weekday" label="Day" required>
+                  {WEEKDAY_LABELS.map((label, i) => (
+                    <option key={label} value={i}>{label}</option>
+                  ))}
+                </Select>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <Field name="start_time" label="Start" type="time" required defaultValue="09:00" />
+                  <Field name="end_time" label="End" type="time" required defaultValue="17:00" />
+                </div>
+                <SubmitButton>Add Day</SubmitButton>
+              </form>
+            </Panel>
+          </div>
+        </div>
+      ) : null}
+    </div>
   );
 }
 

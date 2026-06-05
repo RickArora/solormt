@@ -23,7 +23,7 @@ User = get_user_model()
 
 
 class RegisterSerializer(serializers.ModelSerializer):
-    password = serializers.CharField(write_only=True, min_length=12)
+    password = serializers.CharField(write_only=True, min_length=8)
     recaptcha_token = serializers.CharField(write_only=True, required=False, allow_blank=True)
     role = serializers.ChoiceField(choices=UserProfile.Role.choices, default=UserProfile.Role.CLINIC_OWNER)
     clinic_name = serializers.CharField(max_length=160, required=False, allow_blank=True)
@@ -119,6 +119,9 @@ class PractitionerSerializer(serializers.ModelSerializer):
             "service_ids",
             "availability",
             "is_active",
+            "slot_duration_minutes",
+            "buffer_minutes",
+            "slot_duration_options",
         ]
         read_only_fields = ["id", "name", "services", "availability"]
 
@@ -212,7 +215,7 @@ class PublicBookingSerializer(serializers.Serializer):
     first_name = serializers.CharField(max_length=100)
     last_name = serializers.CharField(max_length=100)
     email = serializers.EmailField()
-    password = serializers.CharField(min_length=12, write_only=True)
+    password = serializers.CharField(min_length=8, write_only=True)
     recaptcha_token = serializers.CharField(write_only=True, required=False, allow_blank=True)
     phone = serializers.CharField(max_length=40, required=False, allow_blank=True)
     health_history = serializers.CharField(required=False, allow_blank=True)
@@ -236,7 +239,7 @@ class PublicBookingSerializer(serializers.Serializer):
 class ClientPortalAuthSerializer(serializers.Serializer):
     mode = serializers.ChoiceField(choices=["register", "login"])
     email = serializers.EmailField()
-    password = serializers.CharField(min_length=12)
+    password = serializers.CharField(min_length=8)
     recaptcha_token = serializers.CharField(write_only=True, required=False, allow_blank=True)
     first_name = serializers.CharField(max_length=100, required=False, allow_blank=True)
     last_name = serializers.CharField(max_length=100, required=False, allow_blank=True)
