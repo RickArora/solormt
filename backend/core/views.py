@@ -610,13 +610,17 @@ class SendAppointmentReminderView(APIView):
         )
         from_email = clinic.reminder_email or "reminders@solormt.com"
 
-        reminder = AppointmentReminder.objects.create(
+        # Reuse the existing confirmation/email row if one was already queued
+        # (unique on appointment+kind+channel), otherwise create it.
+        reminder, _ = AppointmentReminder.objects.update_or_create(
             clinic=clinic,
             appointment=appointment,
             kind=AppointmentReminder.Kind.CONFIRMATION,
             channel=AppointmentReminder.Channel.EMAIL,
-            scheduled_for=timezone.now(),
-            message="Manual reminder sent from dashboard.",
+            defaults={
+                "scheduled_for": timezone.now(),
+                "message": "Manual reminder sent from dashboard.",
+            },
         )
         sent = False
         try:
