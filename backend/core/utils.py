@@ -100,8 +100,12 @@ def queue_appointment_reminders(appointment):
         (AppointmentReminder.Kind.FORTY_EIGHT_HOUR, appointment_start - timedelta(hours=48)),
         (AppointmentReminder.Kind.SAME_DAY, appointment_start.replace(hour=8, minute=0, second=0, microsecond=0)),
     ]
+    # Email always; SMS only when the clinic enables it AND the client opted in.
+    channels = [AppointmentReminder.Channel.EMAIL]
+    if clinic.sms_enabled and getattr(appointment.client, "sms_opt_in", False) and getattr(appointment.client, "phone", ""):
+        channels.append(AppointmentReminder.Channel.SMS)
     for kind, scheduled_for in reminders:
-        for channel in (AppointmentReminder.Channel.EMAIL, AppointmentReminder.Channel.SMS):
+        for channel in channels:
             AppointmentReminder.objects.get_or_create(
                 clinic=clinic,
                 appointment=appointment,

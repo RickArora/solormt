@@ -108,21 +108,54 @@ class Command(BaseCommand):
 
     def _send_sms(self, reminder, appointment, client, clinic) -> bool:
         """
-        Stub: wire up Twilio or a similar provider here.
-        Example with Twilio:
-            from twilio.rest import Client as TwilioClient
-            twilio = TwilioClient(settings.TWILIO_ACCOUNT_SID, settings.TWILIO_AUTH_TOKEN)
-            twilio.messages.create(
-                body=body,
-                from_=settings.TWILIO_FROM_NUMBER,
-                to=client.phone,
-            )
+        Send an SMS reminder via Twilio.
+
+        Guardrails (compliance + safety):
+        - Clinic must have SMS enabled and the client must have opted in.
+        - We never put health details in the body (see _compose / _sms_body).
+        - Texts only deliver after carrier registration (US A2P 10DLC /
+          Canada verified number) — see docs/SMS_SETUP.md.
+
+        Falls back to a console print when Twilio isn't configured, so dev
+        and tests don't silently fail.
         """
-        if not client.phone or not clinic.sms_enabled:
+        from django.conf import settings
+
+        if not client.phone or not clinic.sms_enabled or not getattr(client, "sms_opt_in", False):
             return False
-        _, body = self._compose(reminder, appointment, client, clinic)
-        self.stdout.write(f"[SMS stub] To {client.phone}: {body[:80]}")
-        return True
+
+        body = self._sms_body(reminder, appointment, client, clinic)
+
+        # No Twilio creds → dev/console fallback.
+        if not (settings.TWILIO_ACCOUNT_SID and settings.TWILIO_AUTH_TOKEN and settings.TWILIO_FROM_NUMBER):
+            self.stdout.write(f"[SMS console] To {client.phone}: {body}")
+            return True
+
+        try:
+            from twilio.rest import Client as TwilioClient
+
+            twilio = TwilioClient(settings.TWILIO_ACCOUNT_SID, settings.TWILIO_AUTH_TOKEN)
+            twilio.messages.create(body=body, from_=settings.TWILIO_FROM_NUMBER, to=client.phone)
+            return True
+        except Exception as exc:  # noqa: BLE001
+            self.stderr.write(f"SMS failed for reminder {reminder.pk}: {exc}")
+            return False
+
+    def _sms_body(self, reminder, appointment, client, clinic) -> str:
+        """Short, health-detail-free SMS copy with required opt-out language."""
+        from core.models import AppointmentReminder
+
+        time_str = appointment.time.strftime("%-I:%M %p")
+        if reminder.kind == AppointmentReminder.Kind.SAME_DAY:
+            when = f"today at {time_str}"
+        elif reminder.kind == AppointmentReminder.Kind.FORTY_EIGHT_HOUR:
+            when = f"{appointment.date.strftime('%a %b %-d')} at {time_str}"
+        else:
+            when = f"{appointment.date.strftime('%a %b %-d')} at {time_str}"
+        return (
+            f"{clinic.name}: reminder of your appointment {when}. "
+            f"Reply STOP to opt out."
+        )
 
     def _compose(self, reminder, appointment, client, clinic):
         practitioner = appointment.practitioner_name if hasattr(appointment, "practitioner_name") else str(appointment.practitioner or "your practitioner")

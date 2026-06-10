@@ -299,9 +299,13 @@ class PublicBookingView(APIView):
         client.first_name = data["first_name"]
         client.last_name = data["last_name"]
         client.phone = data.get("phone", "")
+        # SMS consent: opting in clears any prior opt-out.
+        if data.get("sms_opt_in"):
+            client.sms_opt_in = True
+            client.sms_opt_out_at = None
         if portal_user and not client.portal_user_id:
             client.portal_user = portal_user
-        client.save(update_fields=["first_name", "last_name", "phone", "portal_user", "updated_at"])
+        client.save(update_fields=["first_name", "last_name", "phone", "sms_opt_in", "sms_opt_out_at", "portal_user", "updated_at"])
 
         appointment = Appointment.objects.create(
             owner=owner,
@@ -854,3 +858,46 @@ class ClientProfileView(APIView):
             "payments": PaymentSerializer(payments, many=True, context={"request": request}).data,
             "soap_notes": SoapNoteSerializer(soap_notes, many=True, context={"request": request}).data,
         })
+
+
+# ── Twilio inbound SMS webhook (STOP / START handling) ────────────────────────
+
+class SmsWebhookView(APIView):
+    """
+    Twilio posts inbound texts here. Handles the carrier-required opt-out
+    keywords. Point your Twilio number's "A MESSAGE COMES IN" webhook at
+    POST /api/sms/webhook/.
+
+    NOTE: in production, validate the X-Twilio-Signature header before trusting
+    the request (see docs/SMS_SETUP.md).
+    """
+    permission_classes = [AllowAny]
+    authentication_classes = []
+
+    STOP_WORDS = {"STOP", "STOPALL", "UNSUBSCRIBE", "CANCEL", "END", "QUIT"}
+    START_WORDS = {"START", "YES", "UNSTOP"}
+
+    def post(self, request):
+        from_number = str(request.data.get("From", "")).strip()
+        body = str(request.data.get("Body", "")).strip().upper()
+        digits = "".join(ch for ch in from_number if ch.isdigit())[-10:]
+
+        reply = ""
+        if digits:
+            matches = [c for c in Client.objects.exclude(phone="") if "".join(ch for ch in c.phone if ch.isdigit())[-10:] == digits]
+            if body in self.STOP_WORDS:
+                for c in matches:
+                    c.sms_opt_in = False
+                    c.sms_opt_out_at = timezone.now()
+                    c.save(update_fields=["sms_opt_in", "sms_opt_out_at", "updated_at"])
+                reply = "You have been unsubscribed and will no longer receive SMS reminders. Reply START to opt back in."
+            elif body in self.START_WORDS:
+                for c in matches:
+                    c.sms_opt_in = True
+                    c.sms_opt_out_at = None
+                    c.save(update_fields=["sms_opt_in", "sms_opt_out_at", "updated_at"])
+                reply = "You are re-subscribed to SMS reminders. Reply STOP to opt out."
+
+        twiml = f"<?xml version=\"1.0\" encoding=\"UTF-8\"?><Response>{f'<Message>{reply}</Message>' if reply else ''}</Response>"
+        from django.http import HttpResponse
+        return HttpResponse(twiml, content_type="text/xml")

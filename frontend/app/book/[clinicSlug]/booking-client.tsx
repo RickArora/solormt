@@ -94,6 +94,7 @@ export default function BookingClient({ clinicSlug }: { clinicSlug: string }) {
         consent_accepted: form.get("consent_accepted") === "on",
         pay_deposit: form.get("pay_deposit") === "on",
         save_card: form.get("save_card") === "on",
+        sms_opt_in: form.get("sms_opt_in") === "on",
         recaptcha_token: String(form.get("recaptcha_token")),
       });
       if (response.client_access) {
@@ -340,6 +341,10 @@ export default function BookingClient({ clinicSlug }: { clinicSlug: string }) {
             <label className="flex items-start gap-3 rounded-md border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
               <input name="consent_accepted" type="checkbox" required className="mt-1 size-4" />
               <span>I consent to treatment policies and confirm this intake information is accurate.</span>
+            </label>
+            <label className="flex items-start gap-3 rounded-md border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
+              <input name="sms_opt_in" type="checkbox" className="mt-1 size-4" />
+              <span>Text me appointment reminders. Message &amp; data rates may apply; reply STOP to opt out at any time.</span>
             </label>
             {clinic.booking_payment_mode !== "none" || clinic.deposit_required || clinic.card_on_file_required ? (
               <label className="flex items-start gap-3 rounded-md border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">

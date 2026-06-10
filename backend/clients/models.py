@@ -19,6 +19,9 @@ class Client(models.Model):
     date_of_birth = models.DateField(null=True, blank=True)
     emergency_contact = models.CharField(max_length=200, blank=True)
     notes = models.TextField(blank=True)
+    # SMS reminder consent (CASL/TCPA). SMS only goes out when this is True.
+    sms_opt_in = models.BooleanField(default=False)
+    sms_opt_out_at = models.DateTimeField(null=True, blank=True)
     # Insurance / TELUS eClaims fields
     insurance_company = models.CharField(max_length=160, blank=True)
     insurance_plan_number = models.CharField(max_length=80, blank=True)

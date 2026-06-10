@@ -223,6 +223,7 @@ class PublicBookingSerializer(serializers.Serializer):
     consent_accepted = serializers.BooleanField()
     pay_deposit = serializers.BooleanField(default=False)
     save_card = serializers.BooleanField(default=False)
+    sms_opt_in = serializers.BooleanField(default=False)
 
     def validate_consent_accepted(self, value):
         if not value:

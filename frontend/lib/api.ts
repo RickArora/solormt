@@ -7,6 +7,7 @@ export type Client = {
   date_of_birth: string | null;
   emergency_contact: string;
   notes: string;
+  sms_opt_in?: boolean;
 };
 
 export type Appointment = {
@@ -396,6 +397,7 @@ export const api = {
       consent_accepted: boolean;
       pay_deposit: boolean;
       save_card: boolean;
+      sms_opt_in: boolean;
       recaptcha_token?: string;
     }
   ) =>

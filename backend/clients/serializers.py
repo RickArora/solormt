@@ -15,6 +15,7 @@ class ClientSerializer(serializers.ModelSerializer):
             "date_of_birth",
             "emergency_contact",
             "notes",
+            "sms_opt_in",
             "insurance_company",
             "insurance_plan_number",
             "insurance_member_id",

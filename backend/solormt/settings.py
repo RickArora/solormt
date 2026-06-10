@@ -135,6 +135,14 @@ if EMAIL_HOST_PASSWORD:
 else:
     EMAIL_BACKEND = "django.core.mail.backends.console.EmailBackend"
 
+# ── SMS (Twilio) ──────────────────────────────────────────────────────────────
+# SMS reminders send only when TWILIO_* is configured AND the client opted in.
+# Carrier registration is required before texts deliver (US: A2P 10DLC,
+# Canada: verified long code / toll-free) — see docs/SMS_SETUP.md.
+TWILIO_ACCOUNT_SID = os.getenv("TWILIO_ACCOUNT_SID", "")
+TWILIO_AUTH_TOKEN = os.getenv("TWILIO_AUTH_TOKEN", "")
+TWILIO_FROM_NUMBER = os.getenv("TWILIO_FROM_NUMBER", "")
+
 RECAPTCHA_SITE_KEY = os.getenv("RECAPTCHA_SITE_KEY", "")
 RECAPTCHA_SECRET_KEY = os.getenv("RECAPTCHA_SECRET_KEY", "")
 RECAPTCHA_REQUIRED = os.getenv("RECAPTCHA_REQUIRED", "False" if DEBUG else "True") == "True"

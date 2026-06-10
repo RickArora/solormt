@@ -1,7 +1,7 @@
 "use client";
 
 import { ReactNode } from "react";
-import { Bell, CalendarClock, CreditCard, FileText, ReceiptText, ShieldCheck, X } from "lucide-react";
+import { Bell, CalendarClock, CreditCard, FileText, MessageSquare, ReceiptText, ShieldCheck, X } from "lucide-react";
 import { ClientProfile } from "@/lib/api";
 
 function fmt(dt: string | null): string {
@@ -57,6 +57,9 @@ export default function ClientProfilePanel({ profile, loading, onClose }: { prof
               {profile.client.insurance_company ? (
                 <p className="mt-1 flex items-center gap-1 text-xs text-slate-500"><ShieldCheck size={13} /> {profile.client.insurance_company} · member {profile.client.insurance_member_id || "—"}</p>
               ) : null}
+              <p className="mt-1 flex items-center gap-1 text-xs text-slate-500">
+                <MessageSquare size={13} /> SMS reminders: <span className={profile.client.sms_opt_in ? "font-semibold text-emerald-700" : "text-slate-500"}>{profile.client.sms_opt_in ? "opted in" : "not opted in"}</span>
+              </p>
             </div>
 
             {/* Intake / clinic forms — sent + filled status, Jane-style */}
