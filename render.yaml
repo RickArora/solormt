@@ -1,0 +1,59 @@
+databases:
+  - name: solormt-db
+    databaseName: solormt
+    user: solormt
+    plan: free
+
+services:
+  # ── Django API ──────────────────────────────────────────────────────────────
+  - type: web
+    name: solormt-api
+    runtime: python
+    plan: free
+    rootDir: backend
+    buildCommand: "pip install -r requirements.txt && python manage.py collectstatic --noinput && python manage.py migrate && python manage.py bootstrap_dev"
+    startCommand: "gunicorn solormt.wsgi:application --bind 0.0.0.0:$PORT"
+    healthCheckPath: /admin/login/
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.12.4"
+      - key: DJANGO_DEBUG
+        value: "False"
+      - key: DJANGO_SECRET_KEY
+        generateValue: true
+      # Render auto-adds the real *.onrender.com host via RENDER_EXTERNAL_HOSTNAME;
+      # this covers it plus localhost for any local checks.
+      - key: DJANGO_ALLOWED_HOSTS
+        value: ".onrender.com,localhost,127.0.0.1"
+      - key: DATABASE_URL
+        fromDatabase:
+          name: solormt-db
+          property: connectionString
+      # No reCAPTCHA keys in the test env, so don't require it (booking/register
+      # would otherwise fail). Set real keys + flip to True for production.
+      - key: RECAPTCHA_REQUIRED
+        value: "False"
+      # Only used to build links inside outgoing emails. Optional for testing
+      # (email uses the console backend until EMAIL_HOST_PASSWORD is set). After
+      # the first deploy, paste the frontend URL here if you wire up real email.
+      - key: FRONTEND_BASE_URL
+        sync: false
+
+  # ── Next.js frontend ────────────────────────────────────────────────────────
+  - type: web
+    name: solormt-web
+    runtime: node
+    plan: free
+    rootDir: frontend
+    buildCommand: "npm ci && npm run build"
+    startCommand: "npm run start"
+    envVars:
+      - key: NODE_VERSION
+        value: "20.11.1"
+      # The proxy route (app/api/proxy) builds https://<this-host>/api from it.
+      # Wired automatically to the API service's host — no manual step.
+      - key: DJANGO_API_HOST
+        fromService:
+          type: web
+          name: solormt-api
+          property: host

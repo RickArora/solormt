@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 
-const DJANGO_API = process.env.DJANGO_API_URL || "http://127.0.0.1:8000/api";
+// DJANGO_API_URL wins if set. Otherwise, on Render the backend host is injected
+// as DJANGO_API_HOST (via render.yaml fromService) and we build the https URL.
+const DJANGO_API =
+  process.env.DJANGO_API_URL ||
+  (process.env.DJANGO_API_HOST ? `https://${process.env.DJANGO_API_HOST}/api` : "http://127.0.0.1:8000/api");
 
 async function handler(req: NextRequest, { params }: { params: Promise<{ path: string[] }> }) {
   const { path } = await params;
