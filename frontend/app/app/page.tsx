@@ -1,12 +1,13 @@
 "use client";
 
-import { FormEvent, ReactNode, useEffect, useMemo, useState } from "react";
+import { ChangeEvent, FormEvent, ReactNode, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import RecaptchaField from "@/components/RecaptchaField";
 import CalendarTab from "@/components/calendar";
 import ClientProfilePanel from "@/components/client-profile";
 import {
   api,
+  ApiError,
   Appointment,
   Client,
   ClientPackage,
@@ -65,6 +66,9 @@ function today() {
 export default function AppPage() {
   const [token, setToken] = useState<string | null>(null);
   const [tab, setTab] = useState<AdminTab>("appointments");
+  const [forgotMode, setForgotMode] = useState(false);
+  const [forgotEmail, setForgotEmail] = useState("");
+  const [forgotSent, setForgotSent] = useState(false);
   const [metrics, setMetrics] = useState<Metrics>(emptyMetrics);
   const [clinic, setClinic] = useState<Clinic | null>(null);
   const [services, setServices] = useState<Service[]>([]);
@@ -126,6 +130,10 @@ export default function AppPage() {
       setClientPackages(nextClientPackages);
       setInsuranceClaims(nextClaims);
     } catch (error) {
+      if (error instanceof ApiError && error.status === 401) {
+        logout();
+        return;
+      }
       setMessage(error instanceof Error ? error.message : "Could not load data.");
     } finally {
       setLoading(false);
@@ -168,6 +176,20 @@ export default function AppPage() {
     window.localStorage.removeItem("solormt_access");
     window.localStorage.removeItem("solormt_refresh");
     setToken(null);
+  }
+
+  async function submitForgotPassword(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setLoading(true);
+    setMessage("");
+    try {
+      await api.requestPasswordReset(forgotEmail);
+      setForgotSent(true);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Could not send reset email.");
+    } finally {
+      setLoading(false);
+    }
   }
 
   async function toggleServiceIntake(serviceId: number, requires: boolean) {
@@ -599,11 +621,36 @@ export default function AppPage() {
               </div>
             </section>
             <div className="grid gap-6">
-            <AuthCard title="Login" button="Login" onSubmit={(event) => authenticate(event, "login")} />
-            <AuthCard title="Create Account" button="Create Account" register onSubmit={(event) => authenticate(event, "register")} />
+              {forgotMode ? (
+                <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+                  <h2 className="text-xl font-semibold text-ink">Reset Password</h2>
+                  {forgotSent ? (
+                    <p className="mt-4 rounded-md border border-green-200 bg-green-50 p-3 text-sm font-medium text-green-700">
+                      If that email is registered, a reset link has been sent. Check your inbox.
+                    </p>
+                  ) : (
+                    <form onSubmit={submitForgotPassword} className="mt-5 grid gap-4">
+                      <Field name="forgot_email" label="Email" type="email" required value={forgotEmail} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setForgotEmail(e.target.value)} />
+                      <button className="primary-button w-full" disabled={loading}>{loading ? "Sending…" : "Send Reset Link"}</button>
+                    </form>
+                  )}
+                  <button onClick={() => { setForgotMode(false); setForgotSent(false); setMessage(""); }} className="mt-3 text-sm text-skybrand hover:underline">
+                    Back to login
+                  </button>
+                </div>
+              ) : (
+                <>
+                  <AuthCard title="Login" button="Login" onSubmit={(event) => authenticate(event, "login")}>
+                    <button type="button" onClick={() => { setForgotMode(true); setMessage(""); }} className="mt-1 text-xs text-skybrand hover:underline text-left">
+                      Forgot password?
+                    </button>
+                  </AuthCard>
+                  {message ? <p className="rounded-md border border-red-200 bg-red-50 p-3 text-sm font-medium text-red-700">{message}</p> : null}
+                  <AuthCard title="Create Account" button="Create Account" register onSubmit={(event) => authenticate(event, "register")} />
+                </>
+              )}
             </div>
           </div>
-          {message ? <p className="mt-4 rounded-md border border-slate-200 bg-white p-3 text-sm text-slate-700 shadow-sm">{message}</p> : null}
         </div>
       </main>
     );
@@ -1062,6 +1109,7 @@ function AuthCard(props: {
   button: string;
   register?: boolean;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+  children?: ReactNode;
 }) {
   return (
     <form onSubmit={props.onSubmit} className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
@@ -1082,6 +1130,7 @@ function AuthCard(props: {
       <button className="primary-button mt-5 w-full">
         {props.button}
       </button>
+      {props.children}
     </form>
   );
 }
@@ -1249,6 +1298,8 @@ function Field(props: {
   className?: string;
   defaultValue?: string;
   minLength?: number;
+  value?: string;
+  onChange?: (event: ChangeEvent<HTMLInputElement>) => void;
 }) {
   return (
     <label className={`grid gap-1 text-sm font-medium text-slate-700 ${props.className || ""}`}>
@@ -1257,7 +1308,9 @@ function Field(props: {
         name={props.name}
         type={props.type || "text"}
         required={props.required}
-        defaultValue={props.defaultValue}
+        defaultValue={props.value === undefined ? props.defaultValue : undefined}
+        value={props.value}
+        onChange={props.onChange}
         minLength={props.minLength}
         className="form-input"
       />

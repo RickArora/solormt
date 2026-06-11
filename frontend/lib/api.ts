@@ -297,6 +297,16 @@ export const api = {
       body: JSON.stringify(payload)
     }),
   me: (token: string) => request<{ email: string; clinic_name: string; role: string }>("/auth/me/", {}, token),
+  requestPasswordReset: (email: string) =>
+    request<{ detail: string }>("/auth/password-reset/", {
+      method: "POST",
+      body: JSON.stringify({ email })
+    }),
+  confirmPasswordReset: (token: string, password: string) =>
+    request<{ detail: string }>("/auth/password-reset/confirm/", {
+      method: "POST",
+      body: JSON.stringify({ token, password })
+    }),
   clinic: (token: string) => request<Clinic>("/clinic/", {}, token),
   updateClinic: (token: string, payload: Partial<Clinic>) =>
     request<Clinic>("/clinic/", { method: "PATCH", body: JSON.stringify(payload) }, token),

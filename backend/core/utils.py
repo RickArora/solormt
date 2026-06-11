@@ -5,7 +5,7 @@ from django.utils import timezone
 from django.conf import settings
 from django.core.mail import send_mail
 
-from .models import AppointmentReminder, Clinic, ClinicMembership, IntakeTemplate, Practitioner, PractitionerAvailability, Service, WaitlistEntry
+from .models import AppointmentReminder, Clinic, ClinicMembership, IntakeTemplate, PasswordResetToken, Practitioner, PractitionerAvailability, Service, WaitlistEntry
 
 
 def send_intake_request(intake, is_reminder: bool = False) -> bool:
@@ -38,6 +38,25 @@ def send_intake_request(intake, is_reminder: bool = False) -> bool:
         send_mail(subject, body, from_email, [client.email], fail_silently=False)
         return True
     except Exception:  # noqa: BLE001
+        return False
+
+
+def send_password_reset_email(token: PasswordResetToken) -> bool:
+    """Send a password reset link to the user."""
+    link = f"{settings.FRONTEND_BASE_URL}/reset-password/{token.token}"
+    subject = "Reset your SoloRMT password"
+    body = (
+        f"Hi {token.user.first_name or token.user.email},\n\n"
+        f"We received a request to reset your password.\n\n"
+        f"Click the link below to choose a new password (valid for 1 hour):\n"
+        f"{link}\n\n"
+        f"If you didn't request this, you can safely ignore this email.\n\n"
+        f"SoloRMT"
+    )
+    try:
+        send_mail(subject, body, settings.DEFAULT_FROM_EMAIL, [token.user.email], fail_silently=False)
+        return True
+    except Exception:
         return False
 
 

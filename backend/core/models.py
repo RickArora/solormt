@@ -355,3 +355,25 @@ class AppointmentReminder(models.Model):
 
     def __str__(self) -> str:
         return f"{self.get_kind_display()} for {self.appointment}"
+
+
+class PasswordResetToken(models.Model):
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="password_reset_tokens",
+    )
+    token = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+    used_at = models.DateTimeField(null=True, blank=True)
+
+    @property
+    def is_valid(self) -> bool:
+        if self.used_at:
+            return False
+        from django.utils import timezone
+        from datetime import timedelta
+        return timezone.now() < self.created_at + timedelta(hours=1)
+
+    def __str__(self) -> str:
+        return f"PasswordResetToken for {self.user.email}"

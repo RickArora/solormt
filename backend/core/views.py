@@ -28,7 +28,7 @@ from appointments.serializers import AppointmentSerializer
 from payments.serializers import InsuranceClaimSerializer, PaymentSerializer
 from .models import (
     AppointmentReminder, Clinic, ClinicMembership, ClientPackage, IntakeResponse, IntakeTemplate,
-    Package, Practitioner, PractitionerAvailability, Service, UserProfile, WaitlistEntry,
+    Package, PasswordResetToken, Practitioner, PractitionerAvailability, Service, UserProfile, WaitlistEntry,
 )
 from .serializers import (
     AppointmentReminderSerializer,
@@ -46,7 +46,7 @@ from .serializers import (
     UserProfileSerializer,
     WaitlistEntrySerializer,
 )
-from .utils import ensure_clinic_defaults, get_default_clinic, notify_waitlist, queue_appointment_reminders, send_intake_request
+from .utils import ensure_clinic_defaults, get_default_clinic, notify_waitlist, queue_appointment_reminders, send_intake_request, send_password_reset_email
 
 User = get_user_model()
 
@@ -952,3 +952,60 @@ class SmsWebhookView(APIView):
         twiml = f"<?xml version=\"1.0\" encoding=\"UTF-8\"?><Response>{f'<Message>{reply}</Message>' if reply else ''}</Response>"
         from django.http import HttpResponse
         return HttpResponse(twiml, content_type="text/xml")
+
+
+class PasswordResetRequestView(APIView):
+    """
+    POST /api/auth/password-reset/
+    Takes an email address and sends a reset link if the account exists.
+    Always returns 200 to avoid leaking which emails are registered.
+    """
+    permission_classes = [AllowAny]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "auth"
+
+    def post(self, request):
+        email = str(request.data.get("email", "")).strip().lower()
+        user = User.objects.filter(email__iexact=email).first()
+        if user:
+            # Invalidate any existing unused tokens for this user
+            PasswordResetToken.objects.filter(user=user, used_at__isnull=True).update(used_at=timezone.now())
+            token = PasswordResetToken.objects.create(user=user)
+            send_password_reset_email(token)
+        return Response({"detail": "If that email is registered, a reset link has been sent."})
+
+
+class PasswordResetConfirmView(APIView):
+    """
+    POST /api/auth/password-reset/confirm/
+    Takes { token, password } and sets the new password if the token is valid.
+    """
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        from django.core.exceptions import ValidationError
+        from .security import validate_strong_password
+
+        token_str = str(request.data.get("token", "")).strip()
+        password = str(request.data.get("password", ""))
+
+        try:
+            # A malformed (non-UUID) token raises Django's ValidationError, not ValueError.
+            reset_token = PasswordResetToken.objects.select_related("user").get(token=token_str)
+        except (PasswordResetToken.DoesNotExist, ValueError, ValidationError):
+            return Response({"detail": "Invalid or expired reset link."}, status=status.HTTP_400_BAD_REQUEST)
+
+        if not reset_token.is_valid:
+            return Response({"detail": "This reset link has expired or has already been used."}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            validate_strong_password(password)
+        except ValidationError as exc:
+            return Response({"detail": " ".join(exc.messages)}, status=status.HTTP_400_BAD_REQUEST)
+
+        reset_token.user.set_password(password)
+        reset_token.user.save()
+        reset_token.used_at = timezone.now()
+        reset_token.save(update_fields=["used_at"])
+
+        return Response({"detail": "Password updated. You can now log in."})
