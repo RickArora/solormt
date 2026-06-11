@@ -8,8 +8,16 @@ from django.utils import timezone
 from rest_framework import generics, status
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
+from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
 from rest_framework_simplejwt.tokens import RefreshToken
+from rest_framework_simplejwt.views import TokenObtainPairView
+
+
+class ThrottledTokenObtainPairView(TokenObtainPairView):
+    """JWT login with brute-force throttling (the 'auth' scope)."""
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "auth"
 
 from datetime import date as date_type
 
@@ -45,6 +53,8 @@ User = get_user_model()
 
 class RegisterView(generics.CreateAPIView):
     permission_classes = [AllowAny]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "auth"
     serializer_class = RegisterSerializer
 
     def create(self, request, *args, **kwargs):
@@ -246,6 +256,8 @@ class PublicAvailabilityView(APIView):
 
 class PublicBookingView(APIView):
     permission_classes = [AllowAny]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "public_booking"
 
     def post(self, request, clinic_slug):
         clinic = get_object_or_404(Clinic, slug=clinic_slug)
@@ -331,6 +343,8 @@ class PublicBookingView(APIView):
             consent_accepted=data["consent_accepted"],
             status=IntakeResponse.Status.COMPLETED if provided_inline else IntakeResponse.Status.SENT,
             sent_at=timezone.now(),
+            # Emailed intake links are short-lived so a leaked URL can't expose PHI indefinitely.
+            token_expires_at=timezone.now() + timedelta(days=14),
             completed_at=timezone.now() if provided_inline else None,
             answers={"source": "online_booking", "delivery": "client_portal"},
         )
@@ -412,6 +426,8 @@ class PublicBookingView(APIView):
 
 class ClientPortalAuthView(APIView):
     permission_classes = [AllowAny]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "auth"
 
     def post(self, request, clinic_slug):
         clinic = get_object_or_404(Clinic, slug=clinic_slug)
@@ -794,15 +810,22 @@ def _submit_to_telus(claim: InsuranceClaim) -> dict:
 
 class PublicIntakeView(APIView):
     permission_classes = [AllowAny]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "intake"
 
     def get(self, request, token):
         intake = get_object_or_404(IntakeResponse.objects.select_related("clinic", "client", "appointment"), token=token)
+        valid = intake.token_is_valid
+        # Redact the stored health history once the link is no longer an editable
+        # draft (completed or expired), so a leaked URL can't expose PHI.
         return Response({
             "clinic_name": intake.clinic.name,
             "client_first_name": intake.client.first_name,
             "status": intake.status,
             "completed": intake.status == IntakeResponse.Status.COMPLETED,
-            "health_history": intake.health_history,
+            "expired": bool(intake.token_expires_at and not valid and intake.status != IntakeResponse.Status.COMPLETED),
+            "editable": valid,
+            "health_history": intake.health_history if valid else "",
             "consent_accepted": intake.consent_accepted,
             "appointment_date": intake.appointment.date.isoformat() if intake.appointment else None,
             "appointment_time": intake.appointment.time.strftime("%H:%M") if intake.appointment else None,
@@ -810,6 +833,12 @@ class PublicIntakeView(APIView):
 
     def post(self, request, token):
         intake = get_object_or_404(IntakeResponse, token=token)
+        if not intake.token_is_valid:
+            # Already completed or expired — one-time use.
+            return Response(
+                {"detail": "This intake link has expired or was already completed. Contact the clinic for a new link."},
+                status=status.HTTP_410_GONE,
+            )
         health_history = str(request.data.get("health_history", "")).strip()
         consent = bool(request.data.get("consent_accepted"))
         if not consent:
@@ -872,8 +901,8 @@ class SmsWebhookView(APIView):
     keywords. Point your Twilio number's "A MESSAGE COMES IN" webhook at
     POST /api/sms/webhook/.
 
-    NOTE: in production, validate the X-Twilio-Signature header before trusting
-    the request (see docs/SMS_SETUP.md).
+    The X-Twilio-Signature header is validated whenever TWILIO_AUTH_TOKEN is set,
+    so only genuine Twilio requests can change a client's consent state.
     """
     permission_classes = [AllowAny]
     authentication_classes = []
@@ -881,7 +910,25 @@ class SmsWebhookView(APIView):
     STOP_WORDS = {"STOP", "STOPALL", "UNSUBSCRIBE", "CANCEL", "END", "QUIT"}
     START_WORDS = {"START", "YES", "UNSTOP"}
 
+    def _signature_ok(self, request) -> bool:
+        from django.conf import settings
+
+        if not settings.TWILIO_AUTH_TOKEN:
+            return True  # dev / not configured — nothing to validate against
+        try:
+            from twilio.request_validator import RequestValidator
+
+            validator = RequestValidator(settings.TWILIO_AUTH_TOKEN)
+            signature = request.META.get("HTTP_X_TWILIO_SIGNATURE", "")
+            url = request.build_absolute_uri()
+            params = {k: request.data.get(k) for k in request.data}
+            return validator.validate(url, params, signature)
+        except Exception:  # noqa: BLE001
+            return False
+
     def post(self, request):
+        if not self._signature_ok(request):
+            return Response({"detail": "Invalid signature."}, status=status.HTTP_403_FORBIDDEN)
         from_number = str(request.data.get("From", "")).strip()
         body = str(request.data.get("Body", "")).strip().upper()
         digits = "".join(ch for ch in from_number if ch.isdigit())[-10:]

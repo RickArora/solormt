@@ -64,6 +64,18 @@ export default function IntakeClient({ token }: { token: string }) {
     );
   }
 
+  if (data && !data.editable && !data.completed) {
+    return (
+      <main className="min-h-screen bg-[#f7fbff] px-4 py-10">
+        <section className="mx-auto max-w-xl rounded-lg border border-slate-200 bg-white p-6 text-center shadow-soft">
+          <FileText className="mx-auto text-amber-500" size={42} />
+          <h1 className="mt-4 text-2xl font-semibold text-ink">This intake link has expired</h1>
+          <p className="mt-3 text-slate-600">For your privacy, intake links are time-limited. Please contact {data?.clinic_name} to request a new link.</p>
+        </section>
+      </main>
+    );
+  }
+
   return (
     <main className="min-h-screen bg-[#f7fbff] px-4 py-10">
       <section className="mx-auto max-w-xl rounded-lg border border-slate-200 bg-white p-6 shadow-soft">

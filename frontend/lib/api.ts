@@ -203,6 +203,8 @@ export type PublicIntake = {
   client_first_name: string;
   status: string;
   completed: boolean;
+  expired: boolean;
+  editable: boolean;
   health_history: string;
   consent_accepted: boolean;
   appointment_date: string | null;

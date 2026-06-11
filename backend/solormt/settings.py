@@ -38,6 +38,8 @@ MIDDLEWARE = [
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
+    # Append-only audit trail of PHI access/changes (HIPAA/PHIPA requirement).
+    "core.audit.AuditMiddleware",
 ]
 
 ROOT_URLCONF = "solormt.urls"
@@ -90,6 +92,28 @@ REST_FRAMEWORK = {
     "DEFAULT_PERMISSION_CLASSES": (
         "rest_framework.permissions.IsAuthenticated",
     ),
+    # Brute-force / abuse mitigation. Auth + public endpoints carry tighter
+    # scoped limits (see the views). Backed by the cache below; use Redis in prod.
+    "DEFAULT_THROTTLE_CLASSES": (
+        "rest_framework.throttling.AnonRateThrottle",
+        "rest_framework.throttling.UserRateThrottle",
+    ),
+    "DEFAULT_THROTTLE_RATES": {
+        "anon": "60/min",
+        "user": "1000/hour",
+        "auth": "8/min",          # login / register / token refresh
+        "public_booking": "20/hour",
+        "intake": "30/hour",
+    },
+}
+
+# Throttling needs a cache. LocMemate is fine for a single process / dev;
+# point CACHE_URL at Redis or Memcached in production for multi-worker correctness.
+CACHES = {
+    "default": {
+        "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+        "LOCATION": "solormt-throttle",
+    }
 }
 
 SIMPLE_JWT = {
@@ -147,3 +171,27 @@ RECAPTCHA_SITE_KEY = os.getenv("RECAPTCHA_SITE_KEY", "")
 RECAPTCHA_SECRET_KEY = os.getenv("RECAPTCHA_SECRET_KEY", "")
 RECAPTCHA_REQUIRED = os.getenv("RECAPTCHA_REQUIRED", "False" if DEBUG else "True") == "True"
 RECAPTCHA_MIN_SCORE = float(os.getenv("RECAPTCHA_MIN_SCORE", "0.5"))
+
+# ── Transport & cookie security (HIPAA/PHIPA safeguards) ──────────────────────
+# Always-on hardening:
+SECURE_CONTENT_TYPE_NOSNIFF = True
+SECURE_REFERRER_POLICY = "strict-origin-when-cross-origin"
+X_FRAME_OPTIONS = "DENY"
+SESSION_COOKIE_HTTPONLY = True
+SESSION_COOKIE_SAMESITE = "Lax"
+CSRF_COOKIE_SAMESITE = "Lax"
+
+# Production-only: force TLS so PHI is never sent in the clear. Enabled whenever
+# DEBUG is off; behind a load balancer/proxy the X-Forwarded-Proto header is
+# honored so the redirect loop is avoided.
+if not DEBUG:
+    SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+    SECURE_SSL_REDIRECT = os.getenv("SECURE_SSL_REDIRECT", "True") == "True"
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = True
+    SECURE_HSTS_SECONDS = int(os.getenv("SECURE_HSTS_SECONDS", "31536000"))  # 1 year
+    SECURE_HSTS_INCLUDE_SUBDOMAINS = True
+    SECURE_HSTS_PRELOAD = True
+    # Fail loudly if a real deployment forgets to set a secret / hosts.
+    if SECRET_KEY == "dev-only-change-me":
+        raise RuntimeError("DJANGO_SECRET_KEY must be set in production.")

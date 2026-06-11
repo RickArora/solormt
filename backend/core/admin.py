@@ -2,6 +2,7 @@ from django.contrib import admin
 
 from .models import (
     AppointmentReminder,
+    AuditLog,
     Clinic,
     ClinicMembership,
     IntakeResponse,
@@ -11,6 +12,24 @@ from .models import (
     Service,
     UserProfile,
 )
+
+
+@admin.register(AuditLog)
+class AuditLogAdmin(admin.ModelAdmin):
+    list_display = ("created_at", "actor_email", "action", "resource", "object_ref", "status_code", "ip_address")
+    list_filter = ("action", "resource", "created_at")
+    search_fields = ("actor_email", "path", "object_ref")
+    readonly_fields = ("actor", "actor_email", "action", "resource", "path", "object_ref", "status_code", "ip_address", "created_at")
+    date_hierarchy = "created_at"
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False  # append-only
 
 
 @admin.register(UserProfile)

@@ -181,10 +181,20 @@ class IntakeResponse(models.Model):
     status = models.CharField(max_length=30, choices=Status.choices, default=Status.SENT)
     answers = models.JSONField(default=dict, blank=True)
     token = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
+    token_expires_at = models.DateTimeField(null=True, blank=True)
     sent_at = models.DateTimeField(null=True, blank=True)
     reminder_sent_at = models.DateTimeField(null=True, blank=True)
     completed_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
+
+    @property
+    def token_is_valid(self) -> bool:
+        from django.utils import timezone
+        if self.status == self.Status.COMPLETED:
+            return False
+        if self.token_expires_at and self.token_expires_at < timezone.now():
+            return False
+        return True
 
     class Meta:
         ordering = ["-created_at"]
@@ -284,6 +294,35 @@ class ClientPackage(models.Model):
 
     def __str__(self) -> str:
         return f"{self.client} – {self.package_name} ({self.sessions_remaining} left)"
+
+
+class AuditLog(models.Model):
+    """
+    Append-only record of access to / changes of protected health information.
+    Required for HIPAA (§164.312(b)) and PHIPA accountability. We log *metadata*
+    only — never request bodies — so the audit trail itself holds no PHI.
+    """
+    actor = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name="audit_events"
+    )
+    actor_email = models.CharField(max_length=254, blank=True)
+    action = models.CharField(max_length=10)          # GET / POST / PATCH / DELETE …
+    resource = models.CharField(max_length=120)       # coarse resource, e.g. "clients", "soap-notes"
+    path = models.CharField(max_length=255)
+    object_ref = models.CharField(max_length=64, blank=True)
+    status_code = models.PositiveSmallIntegerField(default=0)
+    ip_address = models.GenericIPAddressField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["resource", "created_at"]),
+            models.Index(fields=["actor", "created_at"]),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.created_at:%Y-%m-%d %H:%M} {self.actor_email or 'anon'} {self.action} {self.path}"
 
 
 class AppointmentReminder(models.Model):
