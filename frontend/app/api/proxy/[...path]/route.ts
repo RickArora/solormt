@@ -17,11 +17,24 @@ async function handler(req: NextRequest, { params }: { params: Promise<{ path: s
 
   const body = req.method !== "GET" && req.method !== "HEAD" ? await req.arrayBuffer() : undefined;
 
-  const upstream = await fetch(url, {
-    method: req.method,
-    headers,
-    body,
-  });
+  let upstream: Response;
+  try {
+    upstream = await fetch(url, { method: req.method, headers, body });
+  } catch (err) {
+    // Backend unreachable (wrong/missing DJANGO_API_HOST, API down, DNS, etc.).
+    // Return a readable 502 instead of an opaque thrown 500.
+    const target = DJANGO_API.replace(/\/api$/, "");
+    return NextResponse.json(
+      {
+        detail: "API unreachable from the frontend proxy.",
+        target,
+        hint:
+          "Set DJANGO_API_HOST on the frontend service to the API host (e.g. solormt-api.onrender.com, no https://, no /api), then redeploy.",
+        error: err instanceof Error ? err.message : String(err),
+      },
+      { status: 502 },
+    );
+  }
 
   const data = await upstream.arrayBuffer();
   return new NextResponse(data, {
